@@ -1,0 +1,3 @@
+route_id,route_short_name,route_long_name,route_type,route_color
+R1,Red,Red Line,1,FF0000
+R2,Blue,Blue Line,1,0000FF

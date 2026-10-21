@@ -1,0 +1,12 @@
+prefix,display_name,colour,operator,join_end_to_end
+RED,Red Line,E32D2D,DMRC,no
+YELLOW,Yellow Line,F5C400,DMRC,no
+BLUE,Blue Line,1C6FD1,DMRC,no
+GREEN,Green Line,2E9E4F,DMRC,no
+VIOLET,Violet Line,7B3FA0,DMRC,no
+PINK,Pink Line,F06FA9,DMRC,no
+MAGENTA,Magenta Line,C2185B,DMRC,no
+GRAY,Gray Line,8A8D91,DMRC,no
+ORANGE/AIRPORT,Airport Express,F28C28,DMRC_AIRPORT,no
+AQUA,Aqua Line,00B7C3,NMRC,yes
+RAPID,Rapid Metro Gurugram,4B5563,RAPID_GURUGRAM,no

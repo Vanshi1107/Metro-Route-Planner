@@ -1,0 +1,14 @@
+trip_id,route_id,service_id
+1,1,weekday
+2,1,weekday
+3,1,weekday
+4,2,weekday
+5,3,weekday
+6,4,weekday
+7,5,weekday
+8,6,weekday
+9,7,weekday
+10,8,weekday
+11,9,weekday
+12,10,weekday
+13,11,weekday

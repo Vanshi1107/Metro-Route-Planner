@@ -1,0 +1,10 @@
+build/
+data/*.db
+data/*.db-*
+data/raw/*
+!data/raw/.gitkeep
+data/gtfs_report.txt
+data/session.token
+third_party/httplib/httplib.h
+web/vendor/leaflet/leaflet.js
+web/vendor/leaflet/leaflet.css

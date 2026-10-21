@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delhi Metro Planner</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <a class="skip" href="#plan-form">Skip to the planner</a>
+
+  <header class="top">
+    <h1>Delhi Metro Planner</h1>
+    <div id="account" class="account">
+      <span id="account-out">
+        <button type="button" id="open-login" class="link">Log in</button>
+        <button type="button" id="open-register" class="link">Create account</button>
+      </span>
+      <span id="account-in" hidden>
+        Signed in as <strong id="whoami"></strong>
+        <button type="button" id="logout" class="link">Log out</button>
+      </span>
+    </div>
+  </header>
+
+  <section id="auth-panel" class="panel auth" hidden aria-labelledby="auth-title">
+    <div class="auth-head">
+      <h2 id="auth-title">Account</h2>
+      <button type="button" id="close-auth" class="link" aria-label="Close the account panel">Close</button>
+    </div>
+    <p id="auth-message" class="message" role="alert" hidden></p>
+    <div class="auth-forms">
+      <form id="login-form" autocomplete="on">
+        <h3>Log in</h3>
+        <label for="login-user">Username</label>
+        <input id="login-user" name="username" type="text" autocomplete="username" required maxlength="20">
+        <label for="login-pass">Password</label>
+        <input id="login-pass" name="password" type="password" autocomplete="current-password" required maxlength="512">
+        <button type="submit" class="primary">Log in</button>
+      </form>
+      <form id="register-form" autocomplete="on">
+        <h3>Create an account</h3>
+        <label for="reg-user">Username <span class="hint">(3 to 20 letters or digits)</span></label>
+        <input id="reg-user" name="username" type="text" autocomplete="username" required minlength="3" maxlength="20">
+        <label for="reg-pass">Password <span class="hint">(at least 8 characters)</span></label>
+        <input id="reg-pass" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="512">
+        <button type="submit" class="primary">Create account</button>
+      </form>
+    </div>
+  </section>
+
+  <main class="layout">
+    <div class="left">
+      <section class="panel" aria-labelledby="planner-title">
+        <h2 id="planner-title">Plan a journey</h2>
+        <form id="plan-form" autocomplete="off">
+          <div class="field">
+            <label for="from-input">From</label>
+            <input id="from-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="from-list" placeholder="Start station" maxlength="60">
+            <ul id="from-list" class="suggest" role="listbox" hidden></ul>
+          </div>
+          <button type="button" id="swap" class="swap" aria-label="Swap start and destination" title="Swap start and destination">&#8645;</button>
+          <div class="field">
+            <label for="to-input">To</label>
+            <input id="to-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="to-list" placeholder="Destination station" maxlength="60">
+            <ul id="to-list" class="suggest" role="listbox" hidden></ul>
+          </div>
+          <fieldset class="seg-group">
+            <legend>What matters most?</legend>
+            <div class="segmented">
+              <label><input type="radio" name="prefer" value="fastest" checked><span><b aria-hidden="true">&#9201;</b> Fastest</span></label>
+              <label><input type="radio" name="prefer" value="cheapest"><span><b aria-hidden="true">&#8377;</b> Cheapest</span></label>
+              <label><input type="radio" name="prefer" value="fewest"><span><b aria-hidden="true">&#8644;</b> Fewest changes</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="seg-group">
+            <legend>When?</legend>
+            <div class="segmented">
+              <label><input type="radio" name="day" value="weekday" checked><span>Mon&ndash;Sat</span></label>
+              <label><input type="radio" name="day" value="sunday"><span>Sunday / holiday</span></label>
+            </div>
+          </fieldset>
+          <button type="submit" id="plan-button" class="primary">Find routes</button>
+        </form>
+        <p id="message" class="message" role="alert" hidden></p>
+      </section>
+
+      <section id="results" class="results" aria-live="polite" tabindex="-1"></section>
+
+      <section id="saved-section" class="panel" hidden aria-labelledby="saved-title">
+        <h2 id="saved-title">My saved journeys</h2>
+        <p id="saved-empty" class="hint" hidden>Nothing saved yet. Plan a journey and choose &ldquo;Save this journey&rdquo;.</p>
+        <ul id="saved-list" class="saved"></ul>
+      </section>
+
+      <section id="detail" class="panel" hidden aria-labelledby="detail-title">
+        <div class="auth-head">
+          <h2 id="detail-title">Saved journey</h2>
+          <button type="button" id="close-detail" class="link">Close</button>
+        </div>
+        <p id="detail-note" class="notice" role="status" hidden></p>
+        <pre id="detail-text" class="plain"></pre>
+      </section>
+    </div>
+
+    <div class="right">
+      <div id="map" class="map" role="region" aria-label="Map of the metro network"></div>
+      <p id="map-note" class="hint" hidden></p>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <p id="status-line"></p>
+    <p>Estimates only: times leave out waiting, and the data may be out of date.</p>
+  </footer>
+
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

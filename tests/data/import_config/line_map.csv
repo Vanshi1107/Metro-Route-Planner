@@ -1,0 +1,5 @@
+prefix,display_name,colour,operator,join_end_to_end
+RED,Red Line,FF0000,OP_A,no
+BLUE,Blue Line,0000FF,OP_A,no
+GREEN,Green Line,00FF00,OP_B,yes
+RAPID,Rapid Line,888888,OP_C,no

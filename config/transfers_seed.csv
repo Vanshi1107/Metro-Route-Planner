@@ -1,0 +1,7 @@
+stop_id_a,stop_id_b,walk_seconds,confirmed,note
+234,500,420,yes,Noida Sec-52 (Blue) to Noida Sector 51 (Aqua): 294 m apart. A third-party fare-calculator page names this Aqua/DMRC interchange. Walk time UNVERIFIED.
+91,122,600,no,Supreme Court (Blue) to ITO (Violet): 445 m apart. Not known to be an interchange.
+50,123,600,no,Rajiv Chowk (Blue/Yellow) to Janpath (Violet): 568 m apart. Not known to be an interchange.
+130,182,600,no,Nehru Place (Violet) to Nehru Enclave (Magenta): 588 m apart. Not known to be an interchange.
+93,123,600,no,Barakhamba (Blue) to Janpath (Violet): 613 m apart. Not known to be an interchange.
+33,176,600,no,Punjabi Bagh (Green) to Punjabi Bagh West (Pink): 666 m apart. Unknown. Check on the DMRC map.

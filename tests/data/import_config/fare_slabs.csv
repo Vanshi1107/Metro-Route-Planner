@@ -1,0 +1,7 @@
+operator,day_type,ticket,min_km,max_km,fare_inr,valid_from,source
+OP_A,weekday,token,0,2,10,2025-01-01,test data
+OP_A,weekday,token,2,5,20,2025-01-01,test data
+OP_A,weekday,token,5,1000,30,2025-01-01,test data
+OP_A,sunday_holiday,token,0,2,5,2025-01-01,UNVERIFIED test data
+OP_A,sunday_holiday,token,2,5,10,2025-01-01,UNVERIFIED test data
+OP_A,sunday_holiday,token,5,1000,15,2025-01-01,UNVERIFIED test data

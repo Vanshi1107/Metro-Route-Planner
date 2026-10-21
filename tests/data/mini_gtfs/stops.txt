@@ -1,0 +1,8 @@
+﻿stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station
+A1,Alpha,28.6100,77.2000,0,
+A2,Beta,28.6200,77.2100,0,
+C1,"Central, Hub",28.6300,77.2200,0,
+C2,Central Hub,28.6301,77.2201,0,
+B2,Delta,28.6400,77.2300,0,
+B3,Echo,28.6500,77.2400,0,
+X9,Unused,28.7000,77.3000,0,

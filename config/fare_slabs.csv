@@ -1,0 +1,13 @@
+operator,day_type,ticket,min_km,max_km,fare_inr,valid_from,source
+DMRC,weekday,token,0,2,11,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,weekday,token,2,5,21,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,weekday,token,5,12,32,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,weekday,token,12,21,43,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,weekday,token,21,32,54,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,weekday,token,32,1000,64,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,sunday_holiday,token,0,2,11,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,sunday_holiday,token,2,5,11,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,sunday_holiday,token,5,12,21,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,sunday_holiday,token,12,21,32,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,sunday_holiday,token,21,32,43,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."
+DMRC,sunday_holiday,token,32,1000,54,2025-08-25,"DMRC fare page (Hindi), screenshot dated 2026-10-21 supplied by the project owner; DMRC lines, token fares. Effective date 2025-08-25 is from news reports."

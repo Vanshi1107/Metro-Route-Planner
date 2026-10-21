@@ -1,0 +1,5 @@
+key,value,status,note
+interchange_walk_seconds,240,UNVERIFIED,Placeholder walking time for changing lines at one station. Calibrate against DMRC's journey planner.
+similar_time_seconds,180,DESIGN CHOICE,Routes within this many seconds of the quickest count as "about as fast" and are shown together.
+max_routes_per_group,3,DESIGN CHOICE,The most routes shown for one need (fastest / cheapest / fewest changes).
+max_slower_percent,25,DESIGN CHOICE,For cheapest and fewest changes: routes more than this percent slower than the quickest of their group are not shown.

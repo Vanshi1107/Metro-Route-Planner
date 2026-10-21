@@ -1,0 +1,12 @@
+route_id,route_short_name,route_long_name,route_type
+1,x,RED_A to E,1
+2,x,RED_E to A,1
+3,x,RED_B to D,1
+4,x,BLUE_C to L,1
+5,x,BLUE_C to M,1
+6,x,BLUE_L to C,1
+7,x,BLUE_M to C,1
+8,x,GREEN_G1 to G3,1
+9,x,GREEN_G3 to G5,1
+10,x,RAPID_S1 to S2,1
+11,x,RAPID_S2 to S1,1

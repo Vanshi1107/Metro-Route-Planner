@@ -1,0 +1,3 @@
+stop_id_a,stop_id_b,walk_seconds,confirmed,note
+E,S1,150,yes,confirmed link
+A,S2,300,no,"candidate, not confirmed"

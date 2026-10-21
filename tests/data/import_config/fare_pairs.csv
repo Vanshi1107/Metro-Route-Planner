@@ -1,0 +1,2 @@
+operator,day_type,ticket,stop_id_a,stop_id_b,fare_inr,valid_from,source
+OP_C,any,token,S2,S1,25,2025-01-01,test data

@@ -1,0 +1,49 @@
+IMPORT REPORT
+
+Stations: 262   Services: 13   Segments: 327   Transfers: 174
+Dwell per stop (feed median): 20 s   Interchange walk (PLACEHOLDER): 240 s
+Feed calendar valid until: 20251231
+Cross-station transfers imported: 1   skipped (not confirmed): 5
+Connected pieces: 1 (station counts: 262)
+
+Services:
+   1  Red Line  |  DMRC  |  29 stops  |  routes: 18 1 0 19
+   2  Yellow Line  |  DMRC  |  37 stops  |  routes: 22 4 3 20 21 2
+   3  Blue Line: Dwarka Sector - 21 to Noida Electronic City  |  DMRC  |  50 stops  |  routes: 5 23
+   4  Blue Line: Dwarka Sector - 21 to Vaishali  |  DMRC  |  41 stops  |  routes: 6 24
+   5  Green Line: Inderlok to Brigadier Hoshiyar Singh  |  DMRC  |  21 stops  |  routes: 8 26
+   6  Green Line: Kirti Nagar to Brigadier Hoshiyar Singh  |  DMRC  |  22 stops  |  routes: 7 25
+   7  Violet Line  |  DMRC  |  34 stops  |  routes: 9 28 10 27
+   8  Pink Line  |  DMRC  |  38 stops  |  routes: 29 11
+   9  Magenta Line  |  DMRC  |  25 stops  |  routes: 12 30
+  10  Gray Line  |  DMRC  |  4 stops  |  routes: 31 13
+  11  Airport Express  |  DMRC_AIRPORT  |  6 stops  |  routes: 14 32
+  12  Aqua Line  |  NMRC  |  21 stops  |  routes: 17 16 35 34
+  13  Rapid Metro Gurugram  |  RAPID_GURUGRAM  |  12 stops  |  routes: 33 15
+
+Decisions made automatically:
+  - RED: 4 route pattern(s) merged into 1 service(s) (shorter and reversed patterns are the same service).
+  - YELLOW: 6 route pattern(s) merged into 1 service(s) (shorter and reversed patterns are the same service).
+  - BLUE: 4 route pattern(s) merged into 2 service(s) (shorter and reversed patterns are the same service).
+  - GREEN: 4 route pattern(s) merged into 2 service(s) (shorter and reversed patterns are the same service).
+  - VIOLET: 4 route pattern(s) merged into 1 service(s) (shorter and reversed patterns are the same service).
+  - PINK: 2 route pattern(s) merged into 1 service(s) (shorter and reversed patterns are the same service).
+  - MAGENTA: 2 route pattern(s) merged into 1 service(s) (shorter and reversed patterns are the same service).
+  - GRAY: 2 route pattern(s) merged into 1 service(s) (shorter and reversed patterns are the same service).
+  - ORANGE/AIRPORT: 2 route pattern(s) merged into 1 service(s) (shorter and reversed patterns are the same service).
+  - AQUA: 4 route pattern(s) merged into 2 service(s) (shorter and reversed patterns are the same service).
+  - AQUA: joined two services end to end at 'Noida Sector 142' (Depot Station to Noida Sector 51). ASSUMPTION from config/line_map.csv: trains run through.
+  - RAPID: 2 route pattern(s) merged into 1 service(s) (shorter and reversed patterns are the same service).
+  - 5 candidate transfer(s) in config/transfers_seed.csv were skipped because confirmed is 'no'.
+
+Warnings (worth a human look):
+  - 3 hop(s) take over 10 minutes, which looks like a data artefact: Phase 3 (Rapid Metro) - Moulsari Avenue (Rapid Metro) (12 min); Moulsari Avenue (Rapid Metro) - Cyber City (Rapid Metro) (12 min); Belvedere Towers (Rapid Metro) - Phase 2 (Rapid Metro) (12 min).
+  - 1 segment(s) have no distance. Fares cannot be computed for them.
+  - 16 segment(s) have a feed distance far from the straight-line distance: Satguru Ram Singh Marg - Ashok Park Main (feed 1991 m, straight line 1075 m); Mandawali - West Vinod Nagar - East Vinod Nagar - Mayur Vihar-II (feed 907 m, straight line 552 m); Jamia Millia Islamia - Okhla Vihar (feed 944 m, straight line 588 m).
+  - The feed's calendar ended on 20251231. Newer stations and extensions are probably missing.
+
+Assumptions to remember:
+  - Line colours in config/line_map.csv are cosmetic; the feed has none.
+  - The interchange walking time is a placeholder, not a measured value.
+  - Run times come from the feed and are estimates, not a real timetable.
+  - Distances come from the feed's shape_dist_traveled (they look like metres).
