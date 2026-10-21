@@ -143,7 +143,7 @@ struct Api::World {
         JsonWriter a;
         a.beginArray();
         for (const auto& s : net.stations) {
-            a.beginObject().field("id", s.id).field("name", s.name).field("lat", s.lat).field("lon", s.lon);
+            a.beginObject().field("id", s.id).field("gtfsId", s.gtfsId).field("name", s.name).field("lat", s.lat).field("lon", s.lon);
             a.key("lines").beginArray();
             for (int l : linesAt[static_cast<size_t>(s.id)]) a.value(l);
             a.endArray().endObject();
@@ -583,6 +583,24 @@ Response Api::handleApi(const Request& req) {
                 j.beginObject().field("status", names[static_cast<int>(re->status)]).field("changed", re->changed).field("note", re->note).field("text", re->text);
                 j.key("journey");
                 w.journey(j, re->journey);
+                // The route as data (not only as text), so the page can draw it as a bar of coloured blocks. It is the same
+                // route the saved text describes: the first route the planner gives for this journey's need and day.
+                // null when a station has gone or no route exists any more (the saved text is still sent).
+                j.key("route");
+                const auto fromIt = w.byGtfs.find(re->journey.fromGtfsId), toIt = w.byGtfs.find(re->journey.toGtfsId);
+                Preference savedNeed = Preference::Fastest;
+                if (re->journey.mode == "cheapest") savedNeed = Preference::Cheapest;
+                else if (re->journey.mode == "fewest_changes") savedNeed = Preference::FewestChanges;
+                const DayType savedDay = re->journey.dayType == "weekday" ? DayType::Weekday : DayType::SundayHoliday;
+                bool drawn = false;
+                if (fromIt != w.byGtfs.end() && toIt != w.byGtfs.end() && fromIt->second != toIt->second) {
+                    const PlanResult plan = w.planner.plan(fromIt->second, toIt->second, savedDay, savedNeed);
+                    if (plan.found && !plan.primary.routes.empty()) {
+                        w.route(j, plan.primary.routes[0].route, savedDay, &plan.primary.routes[0].badges);
+                        drawn = true;
+                    }
+                }
+                if (!drawn) j.null();
                 j.endObject();
                 return json(200, j);
             }

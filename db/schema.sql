@@ -1,4 +1,4 @@
--- Delhi Metro Planner - database schema, version 5
+-- MetroGo - database schema, version 5
 --
 -- Version 5 (journey preferences):
 --   * saved_journeys.mode may now also be 'cheapest'

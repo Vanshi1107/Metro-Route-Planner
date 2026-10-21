@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My journeys &ndash; MetroGo</title>
+  <meta name="theme-color" content="#cdd9c5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#323c2a" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="journeys-page">
+  <a class="skip" href="#journeys-heading">Skip to my journeys</a>
+
+  <header class="top">
+    <a class="brand" href="/" aria-label="MetroGo, back to the planner"><img src="/logo.svg" alt="" width="32" height="32"><span class="word">Metro<b>Go</b></span></a>
+    <div class="account">
+      <a class="link" href="/">&larr; Planner</a>
+      <span id="who" hidden>Signed in as <strong id="whoami"></strong> <button type="button" id="logout" class="link">Log out</button></span>
+    </div>
+  </header>
+
+  <main class="journeys-wrap">
+    <div class="journeys-head">
+      <div>
+        <h1 id="journeys-heading">My journeys</h1>
+        <p id="journeys-count" class="hint"></p>
+      </div>
+      <a class="button primary" href="/">Plan a new journey</a>
+    </div>
+
+    <p id="journeys-message" class="message" role="alert" hidden></p>
+
+    <section id="signed-out" class="panel" hidden>
+      <h2>Log in to see your journeys</h2>
+      <p>Journeys you save are kept in your account.</p>
+      <p class="actions"><a class="button primary" href="/login.html?next=/journeys.html">Log in</a> <a class="link" href="/login.html?next=/journeys.html#register">Create an account</a></p>
+    </section>
+
+    <section id="journeys-empty" class="panel empty" hidden>
+      <h2>Nothing saved yet</h2>
+      <p>Plan a journey and press <strong>&#9734; Save</strong> on the option you like. It will appear here.</p>
+      <p><a class="button primary" href="/">Plan a journey</a></p>
+    </section>
+
+    <ol id="journeys-list" class="journeys-list" aria-live="polite"></ol>
+    <noscript><p class="message">This page needs JavaScript to show your journeys.</p></noscript>
+  </main>
+
+  <script src="/shared.js"></script>
+  <script src="/journeys.js"></script>
+</body>
+</html>

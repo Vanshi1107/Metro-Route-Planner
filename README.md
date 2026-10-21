@@ -1,4 +1,4 @@
-# Delhi Metro Planner - Milestone 10
+# MetroGo - Milestone 13
 
 What exists so far:
 - `db/schema.sql`          database schema, version 4
@@ -45,7 +45,35 @@ How it is built: everything the page asks for is answered by `src/web/api.cpp`, 
 response that is tested without any network (`test_web`). `src/tools/metro_web.cpp` only connects it to the
 cpp-httplib library. See docs\security.md for the protections and their limits.
 
-## Accounts and saved journeys
+## Finding stations (the start and destination boxes)
+
+The page searches in the browser, word by word, so it is instant and nothing is cut off:
+- **A line name lists that line's stations**, in order along the line: "aqua l" shows all 21 Aqua Line stations.
+- **Every matching station is shown** (24 for "noida", 36 for "sector"), best match first, with the colours of its lines.
+- **Words can come in any order** ("142 noida" finds Noida Sector 142), and the data's "Sec" is understood as "sector".
+- **Typing mistakes are forgiven:** "dilshaad" offers Dilshad Garden. A misspelling is only suggested, never silently corrected.
+- Typing a line name and pressing Find routes explains that it is a line, and lists its stations to pick from.
+It is tested against all 262 real station names (`node tests\test_search.js`, needs Node.js; the other tests do not).
+The command-line tool still uses its older whole-phrase matching.
+
+## Log in, create an account, save journeys (on the web page)
+
+- **`/login.html`** is a page of its own, reached from "Log in" and "Create account" in the header. It has two tabs, shows
+  the username and password rules as you type, can show or hide the password, asks you to type a new password twice, and
+  sends you back to the planner when you are done. The address `login.html#register` opens the "Create account" tab.
+- **Save** is a button on every option card (top right). Logged in, one tap saves the journey and the button turns into
+  "Saved"; you may then give it a name. Tapping "Saved" again lets you rename it. The card for a journey you already
+  saved shows "Saved" when you plan the same trip again (same day, same option).
+- **Pressing Save while logged out** takes you to the login page and, once you are in, back to the same search with that
+  journey saved.
+- **My journeys** (a link in the header) is a page of its own, `/journeys.html`. Each saved journey is a large card drawn like the
+  planner's (the time, the fare, the coloured bar of lines, the details closed). Favourites are emphasised and come first.
+  Right after you save, "See my journeys" opens the page with that journey **highlighted** and scrolled into view (the address
+  `journeys.html#12` highlights journey 12). "Plan again" returns to the planner with the same search, and deleting one turns its
+  button back to "Save".
+- Read docs\security.md for how the pages are protected and what is not covered (for example: there is no password reset).
+
+## Accounts and saved journeys (command line)
 
     .\build\Release\metro_user.exe register alice
     .\build\Release\metro_user.exe login alice

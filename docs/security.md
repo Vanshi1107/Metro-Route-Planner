@@ -42,6 +42,23 @@
   requests that must never crash or produce invalid JSON. A real browser run (Chromium) also checked that the
   page raises no Content-Security-Policy violations and that a hostile label cannot run script.
 
+## The login page and saving
+
+- **The forms use `method="post"`.** If the script ever failed to load, pressing Enter must not put the username and
+  password in the address bar (where they would be kept in history and logs). A test turns JavaScript off to prove it.
+- **Where you are sent after logging in** comes from `?next=`, but only `/` and `/index.html` are accepted. Anything
+  else (another site, `//evil.example`, `javascript:`, a path into the API) is replaced by `/`. A test tries each.
+- **The submit buttons start switched off** and `auth.js` switches them on. Pressing Enter before the script has loaded does nothing,
+  instead of sending the form natively to a page that cannot handle it (which would leave the person on an error page). A test
+  holds the script back on purpose and presses Enter. With JavaScript off, the page says it needs JavaScript and the form stays inert.
+- **The rules shown while typing are hints.** The server decides what is acceptable and its message is shown as it is.
+- **The "log in to save" memory** is kept in the browser's `sessionStorage` (the two stations, the day and the option),
+  holds no password and no session, is used once and then deleted, and is checked before use. If storage is switched off,
+  the search is simply not restored.
+- **Keyboard focus** goes to the first field immediately and is never moved afterwards, so slow loading cannot pull the
+  cursor out of a box someone is typing in (this happened once during development, and a test now guards it).
+- **A failed login names no field that gave it away:** the message for a wrong username and for a wrong password is the same.
+
 ## What it does NOT do (so do not assume it)
 
 - **The map uses OpenStreetMap's public tile servers.** Their policy is for light use, and every tile request tells
@@ -53,7 +70,8 @@
   is reachable from your own computer alone. A real deployment needs HTTPS.
 - **The lockout can be abused:** someone who knows a username can lock that person out by failing on purpose. That
   is the usual trade-off. Counting per network address would help but is not done yet.
-- **No password reset, no email check, no two-factor login, no "change password" yet.**
+- **No password reset, no email check, no two-factor login, no "change password" yet.** The login page does not offer
+  "forgot password" because nothing behind it exists.
 - **No check against lists of common passwords.** The rule is only: 8 to 128 characters, any characters allowed,
   not equal to the username.
 - **No pepper** (a secret kept outside the database). Reasonable to add later.

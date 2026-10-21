@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log in &ndash; MetroGo</title>
+  <meta name="theme-color" content="#cdd9c5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#323c2a" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="auth-page">
+  <a class="skip" href="#auth-heading">Skip to the form</a>
+
+  <header class="top">
+    <a class="brand" href="/" aria-label="MetroGo, back to the planner"><img src="/logo.svg" alt="" width="32" height="32"><span class="word">Metro<b>Go</b></span></a>
+    <a class="link" href="/">&larr; Back to the planner</a>
+  </header>
+
+  <main class="auth-wrap">
+    <section class="auth-card" aria-labelledby="auth-heading">
+      <h1 id="auth-heading" class="auth-title">Welcome back</h1>
+      <p id="auth-sub" class="auth-sub">Log in to see and save your journeys.</p>
+
+      <div id="signed-in" hidden>
+        <p class="signed-line">You are signed in as <strong id="signed-name"></strong>.</p>
+        <p class="actions"><a id="go-planner" class="button primary" href="/">Go to the planner</a> <button type="button" id="signed-logout" class="small">Log out</button></p>
+      </div>
+
+      <noscript><p class="message">MetroGo needs JavaScript to log you in. Please turn it on for this page.</p></noscript>
+
+      <div id="auth-forms">
+        <div class="tabs" role="tablist" aria-label="Log in or create an account">
+          <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="login-form">Log in</button>
+          <button type="button" role="tab" id="tab-register" aria-selected="false" aria-controls="register-form" tabindex="-1">Create account</button>
+        </div>
+
+        <p id="form-message" class="message" role="alert" hidden></p>
+
+        <!-- method="post": a password must never end up in the address bar. The submit buttons start switched off and auth.js
+             switches them on, so pressing Enter before the script has loaded does nothing (instead of sending the form natively
+             to a page that cannot handle it). -->
+        <form id="login-form" method="post" action="/login.html" role="tabpanel" aria-labelledby="tab-login" novalidate>
+          <label for="login-user">Username</label>
+          <input id="login-user" name="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required maxlength="20">
+          <label for="login-pass">Password</label>
+          <div class="pw-wrap">
+            <input id="login-pass" name="password" type="password" autocomplete="current-password" required maxlength="512">
+            <button type="button" class="pw-toggle" id="login-toggle" aria-pressed="false" aria-label="Show password">Show</button>
+          </div>
+          <button type="submit" class="primary wide" id="login-submit" disabled>Log in</button>
+          <p class="switch">New to MetroGo? <button type="button" class="link" id="to-register">Create an account</button></p>
+        </form>
+
+        <form id="register-form" method="post" action="/login.html" role="tabpanel" aria-labelledby="tab-register" hidden novalidate>
+          <label for="reg-user">Choose a username</label>
+          <input id="reg-user" name="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required maxlength="20" aria-describedby="user-rules">
+          <ul class="checklist" id="user-rules" aria-label="Username rules">
+            <li data-rule="ulen">3 to 20 characters</li>
+            <li data-rule="uchars">Letters and digits only</li>
+          </ul>
+          <label for="reg-pass">Choose a password</label>
+          <div class="pw-wrap">
+            <input id="reg-pass" name="password" type="password" autocomplete="new-password" required maxlength="512" aria-describedby="pass-rules">
+            <button type="button" class="pw-toggle" id="reg-toggle" aria-pressed="false" aria-label="Show password">Show</button>
+          </div>
+          <ul class="checklist" id="pass-rules" aria-label="Password rules">
+            <li data-rule="plen">At least 8 characters</li>
+            <li data-rule="pname">Different from your username</li>
+          </ul>
+          <label for="reg-confirm">Type the password again</label>
+          <input id="reg-confirm" name="confirm" type="password" autocomplete="new-password" required maxlength="512" aria-describedby="match-rule">
+          <ul class="checklist" id="match-rule" aria-label="Confirmation">
+            <li data-rule="pmatch">Both passwords match</li>
+          </ul>
+          <button type="submit" class="primary wide" id="register-submit" disabled>Create account</button>
+          <p class="switch">Already have an account? <button type="button" class="link" id="to-login">Log in</button></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="/auth.js"></script>
+</body>
+</html>

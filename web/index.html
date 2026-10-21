@@ -3,8 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Delhi Metro Planner</title>
-  <link rel="icon" href="data:,">
+  <title>MetroGo</title>
+  <meta name="theme-color" content="#cdd9c5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#323c2a" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -12,44 +14,19 @@
   <a class="skip" href="#plan-form">Skip to the planner</a>
 
   <header class="top">
-    <h1>Delhi Metro Planner</h1>
+    <h1 class="brand"><img src="/logo.svg" alt="" width="32" height="32"><span class="word">Metro<b>Go</b></span></h1>
     <div id="account" class="account">
       <span id="account-out">
-        <button type="button" id="open-login" class="link">Log in</button>
-        <button type="button" id="open-register" class="link">Create account</button>
+        <a class="link" id="open-login" href="/login.html?next=/">Log in</a>
+        <a class="link" id="open-register" href="/login.html?next=/#register">Create account</a>
       </span>
       <span id="account-in" hidden>
-        Signed in as <strong id="whoami"></strong>
+        <a class="link" id="my-journeys" href="/journeys.html">My journeys</a>
+        <span>Signed in as <strong id="whoami"></strong></span>
         <button type="button" id="logout" class="link">Log out</button>
       </span>
     </div>
   </header>
-
-  <section id="auth-panel" class="panel auth" hidden aria-labelledby="auth-title">
-    <div class="auth-head">
-      <h2 id="auth-title">Account</h2>
-      <button type="button" id="close-auth" class="link" aria-label="Close the account panel">Close</button>
-    </div>
-    <p id="auth-message" class="message" role="alert" hidden></p>
-    <div class="auth-forms">
-      <form id="login-form" autocomplete="on">
-        <h3>Log in</h3>
-        <label for="login-user">Username</label>
-        <input id="login-user" name="username" type="text" autocomplete="username" required maxlength="20">
-        <label for="login-pass">Password</label>
-        <input id="login-pass" name="password" type="password" autocomplete="current-password" required maxlength="512">
-        <button type="submit" class="primary">Log in</button>
-      </form>
-      <form id="register-form" autocomplete="on">
-        <h3>Create an account</h3>
-        <label for="reg-user">Username <span class="hint">(3 to 20 letters or digits)</span></label>
-        <input id="reg-user" name="username" type="text" autocomplete="username" required minlength="3" maxlength="20">
-        <label for="reg-pass">Password <span class="hint">(at least 8 characters)</span></label>
-        <input id="reg-pass" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="512">
-        <button type="submit" class="primary">Create account</button>
-      </form>
-    </div>
-  </section>
 
   <main class="layout">
     <div class="left">
@@ -89,20 +66,6 @@
 
       <section id="results" class="results" aria-live="polite" tabindex="-1"></section>
 
-      <section id="saved-section" class="panel" hidden aria-labelledby="saved-title">
-        <h2 id="saved-title">My saved journeys</h2>
-        <p id="saved-empty" class="hint" hidden>Nothing saved yet. Plan a journey and choose &ldquo;Save this journey&rdquo;.</p>
-        <ul id="saved-list" class="saved"></ul>
-      </section>
-
-      <section id="detail" class="panel" hidden aria-labelledby="detail-title">
-        <div class="auth-head">
-          <h2 id="detail-title">Saved journey</h2>
-          <button type="button" id="close-detail" class="link">Close</button>
-        </div>
-        <p id="detail-note" class="notice" role="status" hidden></p>
-        <pre id="detail-text" class="plain"></pre>
-      </section>
     </div>
 
     <div class="right">
@@ -117,6 +80,8 @@
   </footer>
 
   <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/shared.js"></script>
+  <script src="/search.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

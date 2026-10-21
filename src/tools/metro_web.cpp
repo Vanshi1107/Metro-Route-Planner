@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
         server.Patch(".*", handler);
         server.Options(".*", handler);
 
-        std::cout << "Delhi Metro Planner is running at http://" << (bind == "0.0.0.0" ? std::string("localhost") : bind) << ":" << port << "/\n"
+        std::cout << "MetroGo is running at http://" << (bind == "0.0.0.0" ? std::string("localhost") : bind) << ":" << port << "/\n"
                   << "Data version " << api.dataVersion() << ". Press Ctrl+C to stop.\n";
         if (!server.listen(bind.c_str(), port)) {
             std::cerr << "Could not listen on " << bind << ":" << port << ". Is another program using that port?\n";

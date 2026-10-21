@@ -310,6 +310,7 @@ static void testReadOnlyApi(const std::string& schema, const std::string& gtfs, 
     Response stations = w.get("/api/stations");
     CHECK(validJson(stations.body));
     CHECK(contains(stations.body, "\"name\":\"Station A\""));
+    CHECK(contains(stations.body, "\"gtfsId\":\"A\""));                         // lets the page tell which journeys are already saved
     CHECK(contains(stations.body, "\"lat\":28.5"));
     CHECK(contains(stations.contentType, "application/json"));
     Response lines = w.get("/api/lines");
@@ -530,6 +531,8 @@ static void testJourneysOverHttp(const std::string& schema, const std::string& g
     CHECK(validJson(open.body));
     CHECK(contains(open.body, "\"status\":\"current\""));
     CHECK(contains(open.body, "FASTEST"));
+    CHECK(contains(open.body, "\"route\":{\"seconds\":560"));                    // the route as data too, for drawing the coloured bar
+    CHECK(contains(open.body, "\"kind\":\"ride\""));
     CHECK_EQ(w.get("/api/journeys/1", bobby).status, 404);                                      // someone else's journey looks like "not found"
     CHECK_EQ(w.post("/api/journeys/1/favourite", "value=1", bobby).status, 404);
     CHECK_EQ(w.post("/api/journeys/1", "", bobby, "DELETE").status, 404);

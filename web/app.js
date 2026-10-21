@@ -1,4 +1,4 @@
-/* Delhi Metro Planner: the page's logic.
+/* MetroGo: the page's logic.
  *
  * Safety rules for this file:
  *  - Text from the server (station names, labels, notes...) is only ever put on the page with textContent or
@@ -18,6 +18,8 @@
     byId: {},
     lines: [],
     user: null,
+    saved: [],
+    index: null,
     plan: null,
     chosen: { from: null, to: null },
     map: null,
@@ -25,67 +27,8 @@
     mapReady: false
   };
 
-  function $(id) { return document.getElementById(id); }
-
-  // ------------------------------------------------------------------------------------------------ helpers
-
-  /** el('p', {class: 'x'}, 'text', childElement) builds an element safely. */
-  function el(tag, attrs) {
-    var node = document.createElement(tag);
-    if (attrs) {
-      Object.keys(attrs).forEach(function (k) {
-        if (k === 'text') node.textContent = attrs[k];
-        else if (k === 'class') node.className = attrs[k];
-        else node.setAttribute(k, attrs[k]);
-      });
-    }
-    for (var i = 2; i < arguments.length; i++) {
-      var c = arguments[i];
-      if (c === null || c === undefined) continue;
-      node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
-    }
-    return node;
-  }
-
-  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
-
-  function api(method, path, params) {
-    var opts = { method: method, credentials: 'same-origin', headers: { 'X-Requested-With': 'metro-web' } };
-    var url = path;
-    var body = params ? new URLSearchParams(params).toString() : '';
-    if (method === 'GET') {
-      if (body) url += '?' + body;
-    } else if (body) {
-      opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-      opts.body = body;
-    }
-    return fetch(url, opts).then(function (res) {
-      return res.json().catch(function () { return null; }).then(function (data) {
-        if (!res.ok) {
-          var err = new Error((data && data.error) || 'Something went wrong (' + res.status + ').');
-          err.status = res.status;
-          throw err;
-        }
-        return data;
-      });
-    });
-  }
-
-  function showMessage(node, text, ok) {
-    node.textContent = text;
-    node.className = 'message' + (ok ? ' ok' : '');
-    node.hidden = !text;
-  }
-
-  function minutesText(m) { return m <= 0 ? 'less than a minute' : 'about ' + m + ' min'; }
-  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
-
-  function lineChip(service) {
-    // show the line ("Blue Line"), not the long branch name; the branch is still in the hover text and in "towards ..."
-    var chip = el('span', { 'class': 'chip', text: service.name.split(':')[0], title: service.name });
-    if (service.colour && /^[0-9A-Fa-f]{6}$/.test(service.colour)) paint(chip, '#' + service.colour);
-    return chip;
-  }
+  var M = window.MetroGo, S = window.MetroGoSearch;
+  var $ = M.$, el = M.el, clear = M.clear, api = M.api, showMessage = M.showMessage, minutesText = M.minutesText, plural = M.plural, lineChip = M.lineChip;
 
   /** Leaflet treats a plain string given to bindTooltip as HTML, so always hand it a text-only element instead. */
   function tip(text) { return el('span', { text: text }); }
@@ -97,12 +40,21 @@
 
   // ------------------------------------------------------------------------------------------------ station pickers
 
+  /** The line colours after a station name (Hauz Khas is on the Yellow and Magenta lines): a glance tells a newcomer where it is. */
+  function lineDots(lines) {
+    var box = el('span', { 'class': 'dots', 'aria-hidden': 'true' });
+    lines.forEach(function (l) {
+      var d = el('span', { 'class': 'dot-line', title: l.name });
+      if (/^[0-9A-Fa-f]{6}$/.test(l.colour)) d.style.setProperty('--chip', '#' + l.colour);
+      box.appendChild(d);
+    });
+    return box;
+  }
+
   function Picker(input, list) {
     var self = this;
-    var items = [];
+    var items = [];          // the stations that can be chosen, in the order shown (headings are not in here)
     var active = -1;
-    var timer = null;
-    var seq = 0;
     this.id = null;
     this.input = input;
 
@@ -115,47 +67,64 @@
 
     function setActive(i) {
       active = i;
-      Array.prototype.forEach.call(list.children, function (li, k) {
+      Array.prototype.forEach.call(list.querySelectorAll('[role="option"]'), function (li, k) {
         li.setAttribute('aria-selected', k === i ? 'true' : 'false');
-        if (k === i) input.setAttribute('aria-activedescendant', li.id);
+        if (k === i) {
+          input.setAttribute('aria-activedescendant', li.id);
+          if (li.scrollIntoView) li.scrollIntoView({ block: 'nearest' });
+        }
       });
     }
 
-    function choose(item) {
-      self.id = item.id;
-      input.value = item.name;
+    function choose(station) {
+      self.id = station.id;
+      input.value = station.name;
       close();
     }
     this.choose = choose;
 
-    function render() {
+    /** Shows what the search found: name matches, then each matching line's stations, or "did you mean". */
+    function render(res) {
       clear(list);
-      if (!items.length) { close(); return; }
-      items.forEach(function (item, k) {
-        var li = el('li', { role: 'option', id: list.id + '-' + k, 'aria-selected': 'false', text: item.name });
-        li.addEventListener('mousedown', function (e) { e.preventDefault(); choose(item); });
+      items = [];
+      active = -1;
+      function head(text) { list.appendChild(el('li', { role: 'presentation', 'class': 'suggest-head', text: text })); }
+      function option(st) {
+        var k = items.length;
+        items.push(st);
+        var names = st.lines.map(function (l) { return l.name; });
+        var li = el('li', { role: 'option', id: list.id + '-' + k, 'aria-selected': 'false', 'aria-label': st.name + (names.length ? ' (' + names.join(', ') + ')' : '') },
+          el('span', { 'class': 'sname', text: st.name }), lineDots(st.lines));
+        li.addEventListener('mousedown', function (e) { e.preventDefault(); choose(st); });
         list.appendChild(li);
+      }
+      if (res.fuzzyOnly) {
+        head('Did you mean');
+        res.stations.slice(0, 8).forEach(option);
+      } else if (res.stations.length) {
+        if (res.stations.length > 8 || res.lines.length) head(res.stations.length + (res.stations.length === 1 ? ' station' : ' stations'));
+        res.stations.forEach(option);
+      } else if (res.suggestions.length) {
+        head('No match. Did you mean');
+        res.suggestions.forEach(option);
+      }
+      res.lines.forEach(function (g) {
+        head(g.name + ' stations');
+        g.stations.forEach(option);
       });
+      if (!items.length) { close(); return; }
       list.hidden = false;
       input.setAttribute('aria-expanded', 'true');
     }
 
     function search() {
       var q = input.value.trim();
-      if (!q) { items = []; close(); return Promise.resolve(); }
-      var mine = ++seq;
-      return api('GET', '/api/search', { q: q }).then(function (found) {
-        if (mine !== seq) return;
-        items = found.stations;
-        render();
-      }).catch(function () { close(); });
+      if (!q || !state.index) { items = []; close(); return; }
+      render(S.search(state.index, q, { limit: 80 }));
     }
 
-    input.addEventListener('input', function () {
-      self.id = null;
-      clearTimeout(timer);
-      timer = setTimeout(search, 120);
-    });
+    input.addEventListener('input', function () { self.id = null; search(); });
+    input.addEventListener('focus', function () { if (!self.id && input.value.trim()) search(); });
     input.addEventListener('keydown', function (e) {
       if (list.hidden) return;
       if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(active + 1, items.length - 1)); }
@@ -170,22 +139,15 @@
       if (self.id) return Promise.resolve(self.id);
       var q = input.value.trim();
       if (!q) return Promise.reject(new Error('Enter a station in each box.'));
-      return api('GET', '/api/search', { q: q }).then(function (r) {
-        if (r.status === 'found') { choose(r.stations[0]); return r.stations[0].id; }
-        if (r.status === 'ambiguous') {
-          var exact = r.stations.filter(function (f) { return f.name.toLowerCase() === q.toLowerCase(); });
-          if (exact.length === 1) { choose(exact[0]); return exact[0].id; }
-          items = r.stations;
-          render();
-          throw new Error('\u201C' + q + '\u201D matches several stations. Pick one from the list.');
-        }
-        if (r.status === 'suggestions') {
-          items = r.stations;
-          render();
-          throw new Error('No station matches \u201C' + q + '\u201D. Did you mean one of the stations in the list?');
-        }
-        throw new Error('No station matches \u201C' + q + '\u201D.');
-      });
+      if (!state.index) return Promise.reject(new Error('The stations are still loading. Try again in a moment.'));
+      var r = S.resolve(state.index, q);
+      var quoted = '\u201C' + q + '\u201D';
+      if (r.status === 'found') { choose(r.stations[0]); return Promise.resolve(r.stations[0].id); }
+      search();   // show what matched, so the person can pick
+      if (r.status === 'ambiguous') return Promise.reject(new Error(quoted + ' matches several stations. Pick one from the list.'));
+      if (r.status === 'line') return Promise.reject(new Error(quoted + ' is a line, not a station. Pick one of its stations from the list.'));
+      if (r.status === 'suggestions') return Promise.reject(new Error('No station matches ' + quoted + '. Did you mean one of the stations in the list?'));
+      return Promise.reject(new Error('No station matches ' + quoted + '.'));
     };
 
     this.set = function (station) { choose({ id: station.id, name: station.name }); };
@@ -274,90 +236,11 @@
 
   // ------------------------------------------------------------------------------------------------ results
 
-  var NEED = {
-    fastest: { label: 'Fastest', icon: '\u23F1' },
-    cheapest: { label: 'Cheapest', icon: '\u20B9' },
-    fewest: { label: 'Fewest changes', icon: '\u21C4' }
-  };
-
-  /** Dark text on light colours (like the Yellow Line), white text on dark ones. */
-  function textOn(hex) {
-    var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-    if (!m) return '#ffffff';
-    var lum = 0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16);
-    return lum > 150 ? '#1c2330' : '#ffffff';
-  }
-  function paint(node, hex) {
-    node.style.setProperty('--chip', hex);
-    node.style.setProperty('--chip-text', textOn(hex));
-    node.style.setProperty('--chip-shadow', textOn(hex) === '#ffffff' ? '0 0 2px rgba(0,0,0,0.55)' : 'none');
-  }
-
-  function mins(m) { return m <= 0 ? '<1 min' : m + ' min'; }
-  function shortLine(service) { return service.name.split(':')[0]; }
-  function lineColour(service, fallback) { return /^[0-9A-Fa-f]{6}$/.test(service.colour) ? '#' + service.colour : fallback; }
+  var NEED = M.NEED, paint = M.paint, mins = M.mins, shortLine = M.shortLine, lineColour = M.lineColour, fareLine = M.fareLine, routeStrip = M.routeStrip, timeline = M.timeline;
 
   /** Two routes with the same rides over the same stations are the same journey. */
   function routeKey(route) {
     return route.steps.filter(function (s) { return s.kind === 'ride'; }).map(function (s) { return shortLine(s.service) + ':' + s.path.join(','); }).join('|');
-  }
-
-  function fareLine(fare) {
-    if (!fare.available) return 'Fare not computed: ' + fare.reason + '.';
-    var how = fare.basis === 'pair table'
-      ? 'from the ' + fare.operator + ' fare table for these two stations'
-      : 'based on the shortest ' + fare.operator + ' route between the two stations (' + (fare.distanceM / 1000).toFixed(1) + ' km)';
-    return 'Fare \u20B9' + fare.inr + ' (' + fare.ticket + ' ticket), ' + how + (fare.verified ? '' : '. This fare table has not been verified') + '.';
-  }
-
-  /** The journey drawn as a bar: one coloured block per line (wider = longer), with a marker where you change. */
-  function routeStrip(route) {
-    var rides = route.steps.filter(function (s) { return s.kind === 'ride'; });
-    var description = rides.map(function (s) { return shortLine(s.service) + ' ' + mins(s.minutes); }).join(', then ');
-    var totalRide = rides.reduce(function (sum, r) { return sum + Math.max(r.minutes, 4); }, 0) || 1;
-    var strip = el('div', { 'class': 'strip', role: 'img', 'aria-label': description || 'Walk' });
-    strip.appendChild(el('span', { 'class': 'dot', 'aria-hidden': 'true' }));
-    route.steps.forEach(function (step) {
-      if (step.kind === 'ride') {
-        var name = shortLine(step.service).replace(' Line', '');
-        var share = Math.max(step.minutes, 4) / totalRide;   // how much of the bar this block takes
-        var text = share >= 0.3 ? name + ' \u00B7 ' + step.minutes + ' min' : (share >= 0.16 ? name : '');   // narrow blocks carry no text; hover shows it
-        var seg = el('span', { 'class': 'seg', title: shortLine(step.service) + ': ' + step.from.name + ' to ' + step.to.name + ' (' + mins(step.minutes) + ')', text: text });
-        paint(seg, lineColour(step.service, '#555555'));
-        seg.style.flexGrow = String(Math.max(step.minutes, 4));
-        strip.appendChild(seg);
-      } else {
-        var inStation = step.kind === 'change' && step.at.id === step.to.id;
-        var where = step.kind === 'change' ? step.at.name : step.from.name;
-        strip.appendChild(el('span', { 'class': 'chg' + (inStation ? '' : ' walk'), 'aria-hidden': 'true', title: (inStation ? 'Change at ' + where : 'Walk from ' + where + ' to ' + step.to.name) + ' (' + mins(step.walkMinutes) + ')', text: inStation ? '\u21C4' : '' }));
-      }
-    });
-    strip.appendChild(el('span', { 'class': 'dot', 'aria-hidden': 'true' }));
-    return strip;
-  }
-
-  /** The step-by-step version, kept out of the way until asked for. */
-  function timeline(route) {
-    var ol = el('ol', { 'class': 'timeline' });
-    route.steps.forEach(function (step) {
-      var li;
-      if (step.kind === 'ride') {
-        li = el('li', { 'class': 't-ride' });
-        li.style.setProperty('--chip', lineColour(step.service, '#555555'));
-        li.appendChild(el('div', { 'class': 't-line' }, lineChip(step.service), ' towards ' + step.towards.name));
-        li.appendChild(el('div', { 'class': 't-path', text: step.from.name + ' \u2192 ' + step.to.name + ' \u00B7 ' + plural(step.hops, 'stop', 'stops') + ' \u00B7 ' + mins(step.minutes) }));
-        if (step.via.length) {
-          li.appendChild(el('details', null, el('summary', { text: 'Stations passed (' + step.via.length + ')' }),
-            el('p', { text: step.via.map(function (v) { return v.name; }).join(', ') })));
-        }
-      } else if (step.kind === 'change') {
-        li = el('li', { 'class': 't-change', text: step.at.id === step.to.id ? '\u21C4 Change at ' + step.at.name + ' \u00B7 walk ' + mins(step.walkMinutes) : 'Walk ' + step.at.name + ' \u2192 ' + step.to.name + ' \u00B7 ' + mins(step.walkMinutes) });
-      } else {
-        li = el('li', { 'class': 't-walk', text: 'Walk ' + step.from.name + ' \u2192 ' + step.to.name + ' \u00B7 ' + mins(step.walkMinutes) });
-      }
-      ol.appendChild(li);
-    });
-    return ol;
   }
 
   var allCards = [];
@@ -366,6 +249,85 @@
     drawRoute(route);
     allCards.forEach(function (c) { c.classList.remove('active'); });
     if (state.mapReady) card.classList.add('active');   // the dashed outline marks the route drawn on the map
+  }
+
+  // ------------------------------------------------------------------------------------------------ saving
+
+  var MODE_SAVED = { fastest: 'fastest', cheapest: 'cheapest', fewest: 'fewest_changes' };
+  var DAY_SAVED = { weekday: 'weekday', sunday: 'sunday_holiday' };
+  var PENDING_KEY = 'metrogo.pending';
+
+  /** Is this card's journey already in the person's saved list? */
+  function isSaved(card) {
+    var s = card._save;
+    var from = state.byId[s.data.from.id], to = state.byId[s.data.to.id];
+    if (!state.user || !from || !to) return false;
+    return state.saved.some(function (j) {
+      return j.from.gtfsId === from.gtfsId && j.to.gtfsId === to.gtfsId && j.mode === MODE_SAVED[s.mode] && j.day === DAY_SAVED[s.data.day];
+    });
+  }
+
+  function paintSaveButton(card) {
+    var s = card._save;
+    var saved = isSaved(card);
+    s.btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
+    clear(s.btn);
+    s.btn.appendChild(el('span', { 'aria-hidden': 'true', text: saved ? '\u2605' : '\u2606' }));
+    s.btn.appendChild(document.createTextNode(saved ? ' Saved' : ' Save'));
+    s.btn.title = !state.user ? 'Log in to save this journey' : (saved ? 'Saved. Click to name it.' : 'Save this journey');
+  }
+
+  function updateSaveButtons() {
+    allCards.forEach(function (c) { if (c._save) paintSaveButton(c); });
+  }
+
+  /** Saves (or, if it is already saved, renames) the journey on this card. */
+  function saveJourney(card, label) {
+    var s = card._save;
+    s.btn.disabled = true;
+    return api('POST', '/api/journeys', { from: s.data.from.id, to: s.data.to.id, mode: s.mode, day: s.data.day, label: label })
+      .then(function (r) {
+        clear(s.status);
+        s.status.appendChild(document.createTextNode(r.updated ? 'Updated. ' : 'Saved. '));
+        s.status.appendChild(el('a', { href: '/journeys.html#' + r.id, text: 'See my journeys' }));
+        return refreshSaved().then(function () {
+          s.labelRow.hidden = !!label;           // after a quick save, offer to name it; after naming, close the box
+          if (!label) s.label.value = '';
+        });
+      })
+      .catch(function (e) { s.status.textContent = e.message; })
+      .then(function () { s.btn.disabled = false; });
+  }
+
+  /** The person pressed Save while logged out: keep the search so it can be restored after they log in. */
+  function rememberPending(data, saveMode) {
+    try {
+      sessionStorage.setItem(PENDING_KEY, JSON.stringify({ from: data.from.id, to: data.to.id, day: data.day, prefer: data.prefer, save: saveMode }));
+    } catch (e) { /* storage may be switched off: the search is simply not restored */ }
+  }
+
+  function takePending() {
+    try {
+      var raw = sessionStorage.getItem(PENDING_KEY);
+      sessionStorage.removeItem(PENDING_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+
+  /** Back from the log in page: show the same search again and, if now logged in, finish the save. */
+  function restorePending() {
+    var p = takePending();
+    if (!p || !state.byId[p.from] || !state.byId[p.to] || !NEED[p.prefer] || !NEED[p.save] || (p.day !== 'weekday' && p.day !== 'sunday')) return Promise.resolve();
+    pickers.from.set(state.byId[p.from]);
+    pickers.to.set(state.byId[p.to]);
+    document.querySelector('input[name="prefer"][value="' + p.prefer + '"]').checked = true;
+    document.querySelector('input[name="day"][value="' + p.day + '"]').checked = true;
+    return api('GET', '/api/route', { from: p.from, to: p.to, day: p.day, prefer: p.prefer }).then(function (data) {
+      renderPlan(data);
+      if (!state.user) { showMessage($('message'), 'Log in to save this journey.', true); return null; }
+      var card = allCards.filter(function (c) { return c._save && c._save.mode === p.save; })[0];
+      return card ? saveJourney(card, '') : null;
+    }).catch(function (err) { showMessage($('message'), err.message); });
   }
 
   /**
@@ -407,26 +369,32 @@
     if (o.saveMode) {
       var status = el('span', { 'class': 'hint', role: 'status' });
       var labelRow = el('div', { 'class': 'label-row', hidden: 'hidden' });
-      var label = el('input', { type: 'text', maxlength: '60', placeholder: 'Label (optional)', 'aria-label': 'Label for this saved journey' });
-      var confirm = el('button', { type: 'button', 'class': 'small', text: 'Save' });
-      var cancel = el('button', { type: 'button', 'class': 'small', text: 'Cancel' });
-      labelRow.appendChild(label); labelRow.appendChild(confirm); labelRow.appendChild(cancel);
-      var saveBtn = el('button', { type: 'button', 'class': 'small', text: 'Save this journey' });
+      var label = el('input', { type: 'text', maxlength: '60', placeholder: 'Name it (optional)', 'aria-label': 'Name for this saved journey' });
+      var confirm = el('button', { type: 'button', 'class': 'small', text: 'Save name' });
+      var skip = el('button', { type: 'button', 'class': 'small', text: 'Skip' });
+      labelRow.appendChild(label); labelRow.appendChild(confirm); labelRow.appendChild(skip);
+      var saveBtn = el('button', { type: 'button', 'class': 'save-btn' });
+      head.appendChild(saveBtn);                 // top right of the card, where it is easy to see
+      card._save = { btn: saveBtn, mode: o.saveMode, data: data, status: status, labelRow: labelRow, label: label };
+      paintSaveButton(card);
       saveBtn.addEventListener('click', function () {
-        if (!state.user) { status.textContent = 'Log in to save journeys.'; openAuth('login'); return; }
-        status.textContent = '';
-        labelRow.hidden = false;
-        label.focus();
+        if (!state.user) {                       // not logged in: go and log in, and come back to finish the save
+          rememberPending(data, o.saveMode);
+          window.location.assign('/login.html?next=/');
+          return;
+        }
+        if (isSaved(card)) {                     // already saved: the button opens the name box instead
+          labelRow.hidden = !labelRow.hidden;
+          if (!labelRow.hidden) label.focus();
+          return;
+        }
+        saveJourney(card, '');
       });
-      cancel.addEventListener('click', function () { labelRow.hidden = true; });
+      skip.addEventListener('click', function () { labelRow.hidden = true; });
       confirm.addEventListener('click', function () {
         confirm.disabled = true;
-        api('POST', '/api/journeys', { from: data.from.id, to: data.to.id, mode: o.saveMode, day: data.day, label: label.value.trim() })
-          .then(function (r) { labelRow.hidden = true; label.value = ''; status.textContent = r.updated ? 'Updated in your saved journeys.' : 'Saved.'; return refreshSaved(); })
-          .catch(function (e) { status.textContent = e.message; })
-          .then(function () { confirm.disabled = false; });
+        saveJourney(card, label.value.trim()).then(function () { confirm.disabled = false; });
       });
-      actions.appendChild(saveBtn);
       actions.appendChild(status);
       actions.appendChild(labelRow);
     }
@@ -529,49 +497,17 @@
 
   // ------------------------------------------------------------------------------------------------ account
 
-  function openAuth(which) {
-    $('auth-panel').hidden = false;
-    showMessage($('auth-message'), '');
-    var field = which === 'register' ? $('reg-user') : $('login-user');
-    field.focus();
-  }
-
   function applyUser(user) {
     state.user = user;
     $('account-out').hidden = !!user;
     $('account-in').hidden = !user;
-    $('saved-section').hidden = !user;
     if (user) $('whoami').textContent = user;
-    if (!user) { clear($('saved-list')); $('detail').hidden = true; }
+    if (!user) state.saved = [];
+    updateSaveButtons();
   }
 
   function refreshMe() {
     return api('GET', '/api/me').then(function (me) { applyUser(me.loggedIn ? me.username : null); if (me.loggedIn) return refreshSaved(); });
-  }
-
-  function onLogin(e) {
-    e.preventDefault();
-    var msg = $('auth-message');
-    api('POST', '/api/login', { username: $('login-user').value, password: $('login-pass').value }).then(function (r) {
-      $('login-pass').value = '';
-      $('auth-panel').hidden = true;
-      applyUser(r.username);
-      return refreshSaved();
-    }).catch(function (err) { showMessage(msg, err.message); });
-  }
-
-  function onRegister(e) {
-    e.preventDefault();
-    var msg = $('auth-message');
-    var user = $('reg-user').value, pass = $('reg-pass').value;
-    api('POST', '/api/register', { username: user, password: pass }).then(function () {
-      return api('POST', '/api/login', { username: user, password: pass });
-    }).then(function (r) {
-      $('reg-pass').value = '';
-      $('auth-panel').hidden = true;
-      applyUser(r.username);
-      return refreshSaved();
-    }).catch(function (err) { showMessage(msg, err.message); });
   }
 
   function onLogout() {
@@ -579,65 +515,31 @@
   }
 
   // ------------------------------------------------------------------------------------------------ saved journeys
-
-  function savedTitle(j) {
-    var from = j.from.name || '(a station that no longer exists)';
-    var to = j.to.name || '(a station that no longer exists)';
-    return from + ' to ' + to;
-  }
-
-  function dateText(epoch) {
-    var d = new Date(epoch * 1000);
-    return isNaN(d.getTime()) ? '' : d.toLocaleString();
-  }
-
-  function renderSaved(list) {
-    var ul = $('saved-list');
-    clear(ul);
-    $('saved-empty').hidden = list.length > 0;
-    list.forEach(function (j) {
-      var li = el('li');
-      li.appendChild(el('div', { 'class': 'title', text: (j.favourite ? '\u2605 ' : '') + (j.label ? j.label + ' \u2013 ' : '') + savedTitle(j) }));
-      var meta = (j.mode === 'fastest' ? 'Fastest' : (j.mode === 'cheapest' ? 'Cheapest' : 'Fewest changes')) + ' \u00B7 ' + (j.day === 'weekday' ? 'weekday' : 'Sunday/holiday') + ' \u00B7 ' +
-        minutesText(j.minutes) + ' \u00B7 ' + plural(j.changes, 'change', 'changes') + (j.fareInr === null ? '' : ' \u00B7 \u20B9' + j.fareInr) +
-        (j.current ? '' : ' \u00B7 saved with older data') + ' \u00B7 ' + dateText(j.savedAt);
-      li.appendChild(el('div', { 'class': 'meta', text: meta }));
-      var row = el('div', { 'class': 'row' });
-      var open = el('button', { type: 'button', 'class': 'small', text: 'Open' });
-      var fav = el('button', { type: 'button', 'class': 'small', 'aria-pressed': j.favourite ? 'true' : 'false', text: j.favourite ? 'Favourite' : 'Make favourite' });
-      var del = el('button', { type: 'button', 'class': 'small', text: 'Delete' });
-      open.addEventListener('click', function () { openSaved(j.id); });
-      fav.addEventListener('click', function () {
-        api('POST', '/api/journeys/' + j.id + '/favourite', { value: j.favourite ? '0' : '1' }).then(refreshSaved).catch(function (e) { showMessage($('message'), e.message); });
-      });
-      del.addEventListener('click', function () {
-        if (!window.confirm('Delete this saved journey?')) return;
-        api('DELETE', '/api/journeys/' + j.id).then(function () { $('detail').hidden = true; return refreshSaved(); }).catch(function (e) { showMessage($('message'), e.message); });
-      });
-      row.appendChild(open); row.appendChild(fav); row.appendChild(del);
-      li.appendChild(row);
-      ul.appendChild(li);
-    });
-  }
+  // The list itself lives on its own page (journeys.html). Here we only need to know WHICH journeys are saved, so the
+  // Save buttons can say "Saved".
 
   function refreshSaved() {
-    return api('GET', '/api/journeys').then(renderSaved).catch(function (e) {
+    return api('GET', '/api/journeys').then(function (list) { state.saved = list; updateSaveButtons(); }).catch(function (e) {
       if (e.status === 401) applyUser(null);
       else showMessage($('message'), e.message);
     });
   }
 
-  function openSaved(id) {
-    api('GET', '/api/journeys/' + id).then(function (r) {
-      $('detail').hidden = false;
-      $('detail-title').textContent = (r.journey.label ? r.journey.label + ' \u2013 ' : '') + savedTitle(r.journey);
-      var note = $('detail-note');
-      note.textContent = r.note;
-      note.hidden = !r.note;
-      $('detail-text').textContent = r.text;
-      $('detail').scrollIntoView({ block: 'nearest' });
-      if (r.status === 'recomputed') refreshSaved();
-    }).catch(function (e) { showMessage($('message'), e.message); });
+  /** A link such as  /?from=<station id>&to=<station id>&day=weekday&prefer=fastest  (the journeys page uses it for "Plan again"). */
+  function applyUrlSearch() {
+    var q = new URLSearchParams(window.location.search);
+    if (!q.has('from') && !q.has('to')) return Promise.resolve();
+    var byGtfs = {};
+    state.stations.forEach(function (st) { byGtfs[st.gtfsId] = st; });
+    var from = byGtfs[q.get('from')], to = byGtfs[q.get('to')];
+    var day = q.get('day') || 'weekday', prefer = q.get('prefer') || 'fastest';
+    try { window.history.replaceState(null, '', window.location.pathname); } catch (e) { /* fine */ }
+    if (!from || !to || from.id === to.id || (day !== 'weekday' && day !== 'sunday') || !NEED[prefer]) return Promise.resolve();
+    pickers.from.set(from);
+    pickers.to.set(to);
+    document.querySelector('input[name="prefer"][value="' + prefer + '"]').checked = true;
+    document.querySelector('input[name="day"][value="' + day + '"]').checked = true;
+    return api('GET', '/api/route', { from: from.id, to: to.id, day: day, prefer: prefer }).then(renderPlan).catch(function (err) { showMessage($('message'), err.message); });
   }
 
   // ------------------------------------------------------------------------------------------------ start
@@ -662,13 +564,7 @@
     pickers.to = new Picker($('to-input'), $('to-list'));
     $('plan-form').addEventListener('submit', onPlan);
     $('swap').addEventListener('click', onSwap);
-    $('login-form').addEventListener('submit', onLogin);
-    $('register-form').addEventListener('submit', onRegister);
     $('logout').addEventListener('click', onLogout);
-    $('open-login').addEventListener('click', function () { openAuth('login'); });
-    $('open-register').addEventListener('click', function () { openAuth('register'); });
-    $('close-auth').addEventListener('click', function () { $('auth-panel').hidden = true; });
-    $('close-detail').addEventListener('click', function () { $('detail').hidden = true; });
 
     initMap();
     Promise.all([api('GET', '/api/status'), api('GET', '/api/stations'), api('GET', '/api/lines')]).then(function (r) {
@@ -676,9 +572,10 @@
       state.stations = r[1];
       state.stations.forEach(function (s) { state.byId[s.id] = s; });
       state.lines = r[2];
+      state.index = S.buildIndex(state.stations, state.lines);
       drawNetwork();
       return refreshMe();
-    }).catch(function (err) {
+    }).then(restorePending).then(applyUrlSearch).catch(function (err) {
       showMessage($('message'), 'The planner could not load its data: ' + err.message);
     });
   }
