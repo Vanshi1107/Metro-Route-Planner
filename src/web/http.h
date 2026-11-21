@@ -23,6 +23,7 @@ struct Request {
     std::string body;
     std::vector<Param> form;                    // from the body when it is application/x-www-form-urlencoded
     bool badEncoding = false;                   // the path, query or form was not valid percent-encoding
+    std::string remoteAddr;                     // the client's address as the server saw it ("" = unknown, as in tests); only the admin tools look at it
 
     std::string header(const std::string& lowerName) const;
     std::string queryParam(const std::string& name) const;   // "" if absent

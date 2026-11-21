@@ -80,10 +80,13 @@ Router::Cost Router::add(Cost c, const Edge& e, Mode mode) const {
 
 Router::SearchResult Router::search(int from, int to, Mode mode, const Restrictions* restrictions) const {
     const size_t n = adj_.size();
-    std::vector<char> serviceBanned, stationBanned;
+    std::vector<char> serviceBanned, stationBanned, stationClosed;
     if (restrictions && !restrictions->empty()) {
         serviceBanned.assign(net_.services.size() + 1, 0);
         stationBanned.assign(net_.stations.size() + 1, 0);
+        stationClosed.assign(net_.stations.size() + 1, 0);
+        for (int id : restrictions->closedStations)
+            if (id >= 1 && id <= static_cast<int>(net_.stations.size())) stationClosed[static_cast<size_t>(id)] = 1;
         for (int id : restrictions->bannedServices)
             if (id >= 1 && id <= static_cast<int>(net_.services.size())) serviceBanned[static_cast<size_t>(id)] = 1;
         for (int id : restrictions->bannedChangeStations)
@@ -102,6 +105,7 @@ Router::SearchResult Router::search(int from, int to, Mode mode, const Restricti
     }
     for (const auto& w : initialWalks_[static_cast<size_t>(from)]) {
         if (restricted && serviceBanned[static_cast<size_t>(nodeService_[static_cast<size_t>(w.first)])]) continue;
+        if (restricted && stationClosed[static_cast<size_t>(nodeStation_[static_cast<size_t>(w.first)])]) continue;   // cannot walk to a closed station and board there
         Cost c = add(Cost{0, 0}, Edge{w.first, w.second, 0}, mode);
         Cost& cur = r.dist[static_cast<size_t>(w.first)];
         if (lessCost(c.a, c.b, cur.a, cur.b)) {
@@ -125,6 +129,8 @@ Router::SearchResult Router::search(int from, int to, Mode mode, const Restricti
                     if (serviceBanned[static_cast<size_t>(nodeService_[static_cast<size_t>(e.to)])]) continue;   // may not use that service
                     const bool isChange = (u % 3 != 0) && (e.to % 3 == 0);                                       // train -> platform
                     if (isChange && stationBanned[static_cast<size_t>(nodeStation_[u])]) continue;               // may not change here
+                    // closed stations: no getting off there, and no changing onto a platform there (staying on a train that runs through is fine)
+                    if (isChange && (stationClosed[static_cast<size_t>(nodeStation_[u])] || stationClosed[static_cast<size_t>(nodeStation_[static_cast<size_t>(e.to)])])) continue;
                 }
                 const Cost c = add(r.dist[u], e, mode);
                 Cost& cur = r.dist[static_cast<size_t>(e.to)];
@@ -242,6 +248,15 @@ Route Router::find(int from, int to, Mode mode, const Restrictions& restrictions
         r.fromStation = from;
         r.toStation = to;
         return r;   // found = false
+    }
+    for (int id : restrictions.closedStations) {   // a journey cannot start or end at a station where trains do not stop
+        if (id == from || id == to) {
+            Route none;
+            none.mode = mode;
+            none.fromStation = from;
+            none.toStation = to;
+            return none;   // found = false
+        }
     }
     const SearchResult r = search(from, to, mode, &restrictions);
     return buildRoute(r, from, to, mode, r.endNode);

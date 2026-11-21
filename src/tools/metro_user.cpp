@@ -55,6 +55,9 @@ void usage() {
                  "  metro_user open ID\n"
                  "  metro_user favourite ID [--off]\n"
                  "  metro_user delete ID\n"
+                 "  metro_user make-admin NAME      let this user rename and pause stations (/admin.html)\n"
+                 "  metro_user remove-admin NAME\n"
+                 "  metro_user admins               list the admins\n"
                  "Options: --db FILE (default data/metro.db)  --session FILE (default data/session.token)\n"
                  "Usernames: 3-20 letters or digits. Passwords: at least 8 characters.\n"
                  "In this tool, type passwords with ASCII characters (the web version will accept any language).\n";
@@ -155,8 +158,31 @@ int main(int argc, char** argv) {
 
     try {
         Database db(dbPath, false);
-        Network net = loadNetwork(db);
         AccountService accounts(db);
+
+        // Admin commands. They change the database directly and need no login: only someone who can already run programs on
+        // this computer can use them, and that is the only way to become an admin (the web sign-up form cannot do it).
+        if (command == "make-admin" || command == "remove-admin") {
+            if (positional.empty()) {
+                usage();
+                return 2;
+            }
+            const bool ok = accounts.setRole(positional, command == "make-admin" ? "admin" : "user");
+            if (!ok) {
+                std::cerr << "There is no user called " << positional << ". Create it first with: metro_user register " << positional << "\n";
+                return 1;
+            }
+            std::cout << positional << (command == "make-admin" ? " is now an admin." : " is no longer an admin.") << "\n";
+            return 0;
+        }
+        if (command == "admins") {
+            const auto names = accounts.adminNames();
+            if (names.empty()) std::cout << "There are no admins yet. Make one with: metro_user make-admin NAME\n";
+            for (const auto& n : names) std::cout << n << "\n";
+            return 0;
+        }
+
+        Network net = loadNetwork(db);
 
         if (command == "register") {
             if (positional.empty()) {

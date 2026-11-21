@@ -93,8 +93,8 @@
         var k = items.length;
         items.push(st);
         var names = st.lines.map(function (l) { return l.name; });
-        var li = el('li', { role: 'option', id: list.id + '-' + k, 'aria-selected': 'false', 'aria-label': st.name + (names.length ? ' (' + names.join(', ') + ')' : '') },
-          el('span', { 'class': 'sname', text: st.name }), lineDots(st.lines));
+        var li = el('li', { role: 'option', id: list.id + '-' + k, 'aria-selected': 'false', 'aria-label': st.name + (st.closed ? ' (closed)' : '') + (names.length ? ' (' + names.join(', ') + ')' : '') },
+          el('span', { 'class': 'sname', text: st.name }), st.closed ? el('span', { 'class': 'tag-closed', text: 'Closed' }) : null, lineDots(st.lines));
         li.addEventListener('mousedown', function (e) { e.preventDefault(); choose(st); });
         list.appendChild(li);
       }
@@ -352,6 +352,10 @@
     card.appendChild(m);
     card.appendChild(routeStrip(route));
     card.appendChild(el('div', { 'class': 'ends' }, el('span', { text: data.from.name }), el('span', { text: data.to.name })));
+    if (route.closedPassed && route.closedPassed.length) {       // trains run through a closed station without stopping
+      var passed = route.closedPassed.map(function (c) { return c.station.name + ' (closed ' + M.closedUntil(c) + ')'; });
+      card.appendChild(el('p', { 'class': 'notice closed-pass', role: 'note', text: 'Your train runs through ' + passed.join(', ') + ' without stopping. Stay on the train.' }));
+    }
     if ((o.chosen && o.index === 0) || group.fellBack) card.appendChild(el('p', { 'class': 'opt-note', text: group.summary }));
 
     // the details, closed by default
@@ -410,7 +414,9 @@
     allCards = [];
     state.plan = data;
     if (!data.found) {
-      box.appendChild(el('div', { 'class': 'card' }, el('p', { text: data.message })));
+      var none = el('div', { 'class': 'card' }, el('p', { text: data.message }));
+      if (data.closed) none.appendChild(el('p', { 'class': 'notice closed-pass', role: 'note', text: 'Closed ' + M.closedUntil(data.closed) + '. Reason: ' + data.closed.reason + '.' }));
+      box.appendChild(none);
       if (state.mapReady) state.layers.route.clearLayers();
       return;
     }
@@ -497,8 +503,10 @@
 
   // ------------------------------------------------------------------------------------------------ account
 
-  function applyUser(user) {
+  function applyUser(user, role) {
     state.user = user;
+    state.role = user ? role || 'user' : null;
+    $('admin-link').hidden = state.role !== 'admin';     // only admins are shown the link (the server checks again on every admin request)
     $('account-out').hidden = !!user;
     $('account-in').hidden = !user;
     if (user) $('whoami').textContent = user;
@@ -507,7 +515,27 @@
   }
 
   function refreshMe() {
-    return api('GET', '/api/me').then(function (me) { applyUser(me.loggedIn ? me.username : null); if (me.loggedIn) return refreshSaved(); });
+    return api('GET', '/api/me').then(function (me) { applyUser(me.loggedIn ? me.username : null, me.role); if (me.loggedIn) return refreshSaved(); });
+  }
+
+  // ------------------------------------------------------------------------------------------------ service notices
+
+  /** Closed stations now, and ones closing within a week. Failing to load them never stops anyone planning a trip. */
+  function loadNotices() {
+    return api('GET', '/api/notices').then(function (data) {
+      var box = $('notices');
+      clear(box);
+      box.hidden = !data.closures.length;
+      if (!data.closures.length) return;
+      var list = el('ul', { 'class': 'notice-list' });
+      data.closures.forEach(function (c) {
+        var line = c.status === 'upcoming'
+          ? ' closes ' + M.when(c.startAt) + ', ' + M.closedUntil(c) + '. '
+          : ' is closed ' + M.closedUntil(c) + '. ';
+        list.appendChild(el('li', null, el('strong', { text: c.station.name }), line + c.reason + '.'));
+      });
+      box.appendChild(el('details', { open: 'open' }, el('summary', { text: 'Service notices (' + data.closures.length + ')' }), list));
+    }).catch(function () { $('notices').hidden = true; });
   }
 
   function onLogout() {
@@ -575,7 +603,7 @@
       state.index = S.buildIndex(state.stations, state.lines);
       drawNetwork();
       return refreshMe();
-    }).then(restorePending).then(applyUrlSearch).catch(function (err) {
+    }).then(restorePending).then(applyUrlSearch).then(loadNotices).catch(function (err) {
       showMessage($('message'), 'The planner could not load its data: ' + err.message);
     });
   }

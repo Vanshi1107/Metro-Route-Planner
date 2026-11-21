@@ -30,6 +30,16 @@
 
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
+  /** A time in seconds since 1970 as people read it in their own time zone, e.g. "Fri, 24 Oct, 18:30". */
+  function when(epochSeconds) {
+    var d = new Date(epochSeconds * 1000);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+
+  /** "until Fri, 24 Oct, 18:30", or "until further notice" when the closure has no end. Works on any closure object from the server. */
+  function closedUntil(c) { return c && c.until ? 'until ' + when(c.until) : 'until further notice'; }
+
   function api(method, path, params) {
     var opts = { method: method, credentials: 'same-origin', headers: { 'X-Requested-With': 'metro-web' } };
     var url = path;
@@ -152,7 +162,7 @@
 
 
   window.MetroGo = {
-    $: $, el: el, clear: clear, api: api, showMessage: showMessage, minutesText: minutesText, plural: plural,
+    $: $, el: el, clear: clear, when: when, closedUntil: closedUntil, api: api, showMessage: showMessage, minutesText: minutesText, plural: plural,
     NEED: NEED, textOn: textOn, paint: paint, mins: mins, shortLine: shortLine, lineColour: lineColour,
     lineChip: lineChip, fareLine: fareLine, routeStrip: routeStrip, timeline: timeline
   };

@@ -56,7 +56,7 @@ else()
 endif()
 
 # ---- our libraries -------------------------------------------------------------------------
-add_library(metro_common STATIC src/common/csv.cpp src/common/db.cpp src/common/text.cpp)
+add_library(metro_common STATIC src/common/csv.cpp src/common/db.cpp src/common/migrate.cpp src/common/text.cpp)
 target_include_directories(metro_common PUBLIC src)
 target_link_libraries(metro_common PUBLIC metro_sqlite PRIVATE metro_warnings)
 
@@ -83,9 +83,13 @@ if(WIN32)
   target_link_libraries(metro_accounts PUBLIC bcrypt)
 endif()
 
+# ---- station admin: an admin renames or pauses a station (database side and validation only) ----------------------
+add_library(metro_admin STATIC src/admin/station_admin.cpp)
+target_link_libraries(metro_admin PUBLIC metro_common PRIVATE metro_warnings)
+
 # ---- the web layer: request handlers (no network needed) ------------------------------------------------------
 add_library(metro_web_lib STATIC src/web/json.cpp src/web/http.cpp src/web/api.cpp)
-target_link_libraries(metro_web_lib PUBLIC metro_accounts PRIVATE metro_warnings)
+target_link_libraries(metro_web_lib PUBLIC metro_accounts metro_admin PRIVATE metro_warnings)
 
 # ---- command-line tools -----------------------------------------------------------------------
 add_executable(metro_db src/tools/metro_db.cpp)
@@ -172,4 +176,12 @@ endif()
 add_executable(test_planner tests/test_planner.cpp)
 target_link_libraries(test_planner PRIVATE metro_route_lib metro_importer metro_warnings)
 add_test(NAME planner COMMAND test_planner "${PROJECT_SOURCE_DIR}/db/schema.sql"
+         "${PROJECT_SOURCE_DIR}/tests/data/import_gtfs" "${PROJECT_SOURCE_DIR}/tests/data/import_config")
+
+add_executable(test_admin tests/test_admin.cpp)
+target_link_libraries(test_admin PRIVATE metro_web_lib metro_importer metro_warnings)
+if(NOT WIN32)
+  target_link_libraries(test_admin PRIVATE Threads::Threads)
+endif()
+add_test(NAME admin COMMAND test_admin "${PROJECT_SOURCE_DIR}/db/schema.sql"
          "${PROJECT_SOURCE_DIR}/tests/data/import_gtfs" "${PROJECT_SOURCE_DIR}/tests/data/import_config")

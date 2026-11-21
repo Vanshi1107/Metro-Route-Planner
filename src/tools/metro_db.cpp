@@ -1,6 +1,7 @@
 // metro_db: create and verify the SQLite database.
 //   metro_db init  [--db data/metro.db] [--schema db/schema.sql] [--force]
 //   metro_db check [--db data/metro.db]
+//   metro_db migrate [--db data/metro.db]   upgrade an existing database in place (keeps accounts and saved journeys)
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -9,6 +10,7 @@
 #include <vector>
 
 #include "../common/db.h"
+#include "../common/migrate.h"
 
 namespace fs = std::filesystem;
 using metro::Database;
@@ -17,12 +19,13 @@ using metro::Transaction;
 namespace {
 
 const char* kTables[] = {"meta",     "stations",    "lines",    "line_stops", "segments", "transfers",
-                         "fare_slabs", "fare_pairs", "users",     "sessions", "login_attempts", "saved_journeys"};
+                         "fare_slabs", "fare_pairs", "users",     "sessions", "login_attempts", "saved_journeys", "station_changes"};
 
 void usage() {
     std::cout << "Usage:\n"
                  "  metro_db init  [--db PATH] [--schema PATH] [--force]   create a new database\n"
                  "  metro_db check [--db PATH]                              verify an existing database\n"
+                 "  metro_db migrate [--db PATH]                            upgrade an older database in place (keeps accounts)\n"
                  "Defaults: --db data/metro.db   --schema db/schema.sql\n"
                  "Run it from the project folder so the default paths work.\n";
 }
@@ -121,6 +124,15 @@ int main(int argc, char** argv) {
         std::string db = optionValue(args, "--db", "data/metro.db");
         if (args[0] == "init") return init(db, optionValue(args, "--schema", "db/schema.sql"), hasFlag(args, "--force"));
         if (args[0] == "check") return check(db);
+        if (args[0] == "migrate") {
+            if (!fs::exists(db)) {
+                std::cerr << "Database not found: " << db << "\n";
+                return 1;
+            }
+            Database database(db, false);
+            std::cout << metro::migrateDatabase(database) << "\n";
+            return check(db);
+        }
         std::cerr << "Unknown command: " << args[0] << "\n\n";
         usage();
         return 2;

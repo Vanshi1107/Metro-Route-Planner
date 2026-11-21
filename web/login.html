@@ -49,7 +49,9 @@
             <button type="button" class="pw-toggle" id="login-toggle" aria-pressed="false" aria-label="Show password">Show</button>
           </div>
           <button type="submit" class="primary wide" id="login-submit" disabled>Log in</button>
-          <p class="switch">New to MetroGo? <button type="button" class="link" id="to-register">Create an account</button></p>
+          <p class="switch" id="new-here">New to MetroGo? <button type="button" class="link" id="to-register">Create an account</button></p>
+          <p class="switch" id="admin-entry">Station admin? <a class="link" href="/login.html?next=/admin.html">Admin log in</a></p>
+          <p class="hint" id="admin-hint" hidden>Admin accounts cannot be created here. They are made on the computer that runs MetroGo, with <code>metro_user make-admin NAME</code>. <a class="link" href="/login.html">Ordinary log in</a></p>
         </form>
 
         <form id="register-form" method="post" action="/login.html" role="tabpanel" aria-labelledby="tab-register" hidden novalidate>

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <set>
+#include <unordered_map>
 #include <utility>
 
 #include "../common/csv.h"
@@ -116,8 +117,10 @@ Network loadNetwork(Database& db) {
     } catch (const std::exception&) {
         throw std::runtime_error("this is not a metro database. Create one with: metro_db init");
     }
-    if (version != "5")
-        throw std::runtime_error("database schema version is " + version + " but 5 is needed. Recreate it with: metro_db init --force, then metro_import");
+    if (version != "6")
+        throw std::runtime_error("database schema version is " + version + " but 6 is needed. " +
+                                 (version == "5" ? "Upgrade it (keeping accounts and saved journeys) with: metro_db migrate"
+                                                 : "Recreate it with: metro_db init --force, then metro_import"));
 
     Network n;
     for (const auto& r : db.rows("SELECT station_id,gtfs_stop_id,name,lat,lon FROM stations ORDER BY station_id")) {
@@ -130,6 +133,33 @@ Network loadNetwork(Database& db) {
         n.stations.push_back(s);
     }
     if (n.stations.empty()) throw std::runtime_error("the database has no network yet. Run: metro_import --gtfs data\\raw");
+    for (const auto& s : n.stations) n.feedNames.push_back(s.name);
+
+    // Admin changes (kept in their own table, so a re-import does not undo them). A rename is applied right here; closures
+    // depend on the time, so they are kept as a list and looked at with closuresAt(). A change for a station that no
+    // longer exists stays in the table but has no effect.
+    {
+        std::unordered_map<std::string, int> byGtfs;
+        for (const auto& s : n.stations) byGtfs[s.gtfsId] = s.id;
+        for (const auto& r : db.rows("SELECT change_id,gtfs_stop_id,kind,ifnull(new_name,''),reason,start_at,ifnull(end_at,0),created_at,created_by "
+                                     "FROM station_changes WHERE cancelled_at IS NULL ORDER BY change_id")) {
+            const auto it = byGtfs.find(r[1]);
+            if (it == byGtfs.end()) continue;
+            StationChange ch;
+            ch.id = toInt(r[0], "station_changes");
+            ch.station = it->second;
+            ch.gtfsId = r[1];
+            ch.kind = r[2];
+            ch.newName = r[3];
+            ch.reason = r[4];
+            ch.startAt = std::strtoll(r[5].c_str(), nullptr, 10);
+            ch.endAt = std::strtoll(r[6].c_str(), nullptr, 10);
+            ch.createdAt = std::strtoll(r[7].c_str(), nullptr, 10);
+            ch.createdBy = r[8];
+            n.changes.push_back(ch);
+            if (ch.kind == "rename" && !ch.newName.empty()) n.stations[static_cast<size_t>(ch.station - 1)].name = ch.newName;   // the latest rename wins
+        }
+    }
 
     for (const auto& r : db.rows("SELECT line_id,family,name,ifnull(colour,''),operator FROM lines ORDER BY line_id")) {
         Service s;
@@ -263,6 +293,47 @@ Resolution resolveStation(const Network& n, const std::string& rawQuery) {
     std::sort(scored.begin(), scored.end());
     for (size_t i = 0; i < scored.size() && i < 5; ++i) res.candidates.push_back(scored[i].second);
     return res;   // NotFound with suggestions
+}
+
+
+std::vector<Closure> closuresAt(const Network& n, long long now) {
+    std::vector<Closure> out;
+    for (const auto& ch : n.changes) {
+        if (ch.kind != "closure") continue;
+        if (ch.startAt > now) continue;                       // not started yet
+        if (ch.endAt != 0 && now >= ch.endAt) continue;       // already over
+        Closure c;
+        c.station = ch.station;
+        c.changeId = ch.id;
+        c.reason = ch.reason;
+        c.startAt = ch.startAt;
+        c.endAt = ch.endAt;
+        bool replaced = false;
+        for (auto& e : out) {
+            if (e.station != c.station) continue;
+            replaced = true;
+            const bool eForever = e.endAt == 0, cForever = c.endAt == 0;
+            if (!eForever && (cForever || c.endAt > e.endAt)) e = c;   // keep the one that lasts longest
+        }
+        if (!replaced) out.push_back(c);
+    }
+    return out;
+}
+
+std::vector<Closure> upcomingClosures(const Network& n, long long now, long long withinSeconds) {
+    std::vector<Closure> out;
+    for (const auto& ch : n.changes) {
+        if (ch.kind != "closure" || ch.startAt <= now || ch.startAt > now + withinSeconds) continue;
+        Closure c;
+        c.station = ch.station;
+        c.changeId = ch.id;
+        c.reason = ch.reason;
+        c.startAt = ch.startAt;
+        c.endAt = ch.endAt;
+        out.push_back(c);
+    }
+    std::sort(out.begin(), out.end(), [](const Closure& a, const Closure& b) { return a.startAt != b.startAt ? a.startAt < b.startAt : a.changeId < b.changeId; });
+    return out;
 }
 
 }  // namespace route

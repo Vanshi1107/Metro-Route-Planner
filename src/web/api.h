@@ -18,7 +18,9 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
+#include "../admin/station_admin.h"
 #include "../auth/accounts.h"
 #include "../common/db.h"
 #include "http.h"
@@ -32,6 +34,9 @@ struct ApiConfig {
     auth::AccountOptions account;             // its clock (if set) is also used for saved journeys
     std::function<void(const std::string&)> log;   // told about internal errors (never sent to the browser)
     size_t maxBodyBytes = 8 * 1024;
+    // The admin tools (rename or pause a station) answer only requests that come from this same computer, unless this is set.
+    // Turn it on only when the site is behind HTTPS: an admin password must never travel over plain HTTP.
+    bool adminFromAnywhere = false;
 };
 
 class Api {
@@ -50,11 +55,14 @@ private:
     Response handleApi(const Request& request);
     Response serveStatic(const std::string& path);
     std::optional<auth::Account> currentAccount(const Request& request);
+    Response handleAdmin(const Request& request, const std::vector<std::string>& seg, bool isGet, bool isPost);
+    long long now() const;
     void reloadIfDataChanged();
 
     Database& db_;
     ApiConfig cfg_;
     auth::AccountService accounts_;
+    admin::StationAdmin admin_;
     std::unique_ptr<World> world_;
     std::string loadedVersion_;
     std::mutex mutex_;

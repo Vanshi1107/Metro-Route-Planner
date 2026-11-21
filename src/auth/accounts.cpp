@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <stdexcept>
 
 #include "crypto.h"
 
@@ -154,7 +155,7 @@ LoginResult AccountService::login(const std::string& username, const std::string
 std::optional<Account> AccountService::validateSession(const std::string& token) {
     if (!isTokenFormat(token)) return std::nullopt;
     const std::string hash = sha256Hex(token);
-    const auto rows = db_.rows("SELECT s.user_id, u.username, s.expires_at FROM sessions s JOIN users u ON u.user_id = s.user_id WHERE s.token_hash = " +
+    const auto rows = db_.rows("SELECT s.user_id, u.username, s.expires_at, u.role FROM sessions s JOIN users u ON u.user_id = s.user_id WHERE s.token_hash = " +
                                sqlQuote(hash) + ";");
     if (rows.empty()) return std::nullopt;
     if (toLL(rows[0][2]) <= opts_.clock()) {
@@ -164,7 +165,19 @@ std::optional<Account> AccountService::validateSession(const std::string& token)
     Account a;
     a.id = static_cast<int>(toLL(rows[0][0]));
     a.username = rows[0][1];
+    a.role = rows[0][3] == "admin" ? "admin" : "user";
     return a;
+}
+
+bool AccountService::setRole(const std::string& username, const std::string& role) {
+    if (role != "user" && role != "admin") throw std::invalid_argument("the role must be user or admin");
+    if (!checkUsername(username).ok) return false;
+    db_.exec("UPDATE users SET role = " + sqlQuote(role) + " WHERE username = " + sqlQuote(username) + ";");
+    return db_.scalarInt("SELECT changes();") > 0;
+}
+
+std::vector<std::string> AccountService::adminNames() {
+    return db_.columnText("SELECT username FROM users WHERE role = 'admin' ORDER BY username;");
 }
 
 void AccountService::logout(const std::string& token) {

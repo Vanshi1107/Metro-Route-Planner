@@ -76,7 +76,8 @@ int main(int argc, char** argv) {
         auto handler = [&api](const httplib::Request& req, httplib::Response& res) {
             std::map<std::string, std::string> headers;
             for (const auto& h : req.headers) headers[h.first] = h.second;
-            const metro::web::Request converted = metro::web::makeRequest(req.method, req.target, headers, req.body);
+            metro::web::Request converted = metro::web::makeRequest(req.method, req.target, headers, req.body);
+            converted.remoteAddr = req.remote_addr;   // the admin tools only answer requests from this computer
             const metro::web::Response out = api.handle(converted);
             res.status = out.status;
             for (const auto& h : out.headers) res.set_header(h.first, h.second);

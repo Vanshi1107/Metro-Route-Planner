@@ -67,7 +67,10 @@ struct Options {                // what the planner offers a traveller
 struct Restrictions {
     std::vector<int> bannedServices;         // service ids that may not be used at all
     std::vector<int> bannedChangeStations;   // station ids where changing from one service to another is not allowed
-    bool empty() const { return bannedServices.empty() && bannedChangeStations.empty(); }
+    // Stations that are closed (an admin paused them): trains run through without stopping. You may stay on a train that
+    // passes through, but you cannot start or end a journey there, get off there, or change there.
+    std::vector<int> closedStations;
+    bool empty() const { return bannedServices.empty() && bannedChangeStations.empty() && closedStations.empty(); }
 };
 
 struct StationCost {

@@ -59,6 +59,20 @@
   cursor out of a box someone is typing in (this happened once during development, and a test now guards it).
 - **A failed login names no field that gave it away:** the message for a wrong username and for a wrong password is the same.
 
+## Station admin
+
+An admin can rename or pause a station for everyone, so this is the most powerful thing in the program. The controls:
+
+- **How someone becomes an admin.** Only with `metro_user make-admin NAME`, run on the computer that hosts MetroGo. The web sign-up form cannot do it (a test sends `role=admin` in the form and checks it is ignored).
+- **Four checks before anything happens** (`Api::handleAdmin` in `src/web/api.cpp`): the request comes from this computer; someone is logged in; that account has the admin role (looked up on every request, so removing the role takes effect at once); and for changes, the same CSRF header and Origin checks as every other change.
+- **Local only.** The server passes each request's client address to the API. A look-alike such as `127.0.0.1.evil.example` is refused (a test found and fixed a looser rule). `ApiConfig::adminFromAnywhere` lifts the limit; use it only behind HTTPS.
+- **Every input is validated** in `src/admin/station_admin.cpp`: names of 2 to 60 characters, not another station's name, valid text with no control characters; reasons of 5 to 200 characters; end after start and after now. SQL text goes through the same `sqlQuote` as everywhere.
+- **An audit trail.** Changes are never deleted. Each row records who made it and when, and who cancelled it and when.
+- **Text is shown as plain text.** A reason such as `<img onerror=...>` is displayed literally to admins and passengers (a browser test checks it).
+- **Safe defaults on the page.** The pause form starts on "until a set time" for every station, so a permanent pause cannot be left selected by accident, and every pause or rename asks for confirmation.
+
+What it does **not** do: it cannot tell that an admin is really a DMRC employee (admins are local accounts); there is no second person to approve a change; and with plain HTTP an admin password is readable on a network, which is why the tools are limited to the local computer.
+
 ## What it does NOT do (so do not assume it)
 
 - **The map uses OpenStreetMap's public tile servers.** Their policy is for light use, and every tile request tells

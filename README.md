@@ -61,7 +61,8 @@ question of the next phase, and is described honestly in the [Project Overview](
 - **Accounts and saved journeys.** One-tap **Save**, optional names, favourites, **Plan again**, delete. Press Save while logged
   out and you are taken to log in, then returned to the same search with the journey saved.
 - **Readable by design.** A palette with measured contrast, an automatic dark theme, a phone-sized layout, keyboard use.
-- **Command-line tools** for routes, accounts, and checking the router against an independent solver.
+- **Station admin.** When something happens to a station, an admin can **pause** it (from a date and time until a date and time, or until further notice) or **rename** it. Passengers see it at once, and every change is recorded with who, when and why. See [Pausing or renaming a station](#pausing-or-renaming-a-station-admin).
+- **Command-line tools** for routes, accounts, admins, and checking the router against an independent solver.
 
 <table>
   <tr>
@@ -177,6 +178,7 @@ directly, but **the CMake route on Linux and macOS has not been tried**, so trea
 | `/` | The planner: stations, what matters most, the day, results, map, **Save** |
 | `/login.html` | Log in or create an account (`#register` opens the second tab) |
 | `/journeys.html` | **My journeys**: saved journeys as cards; `journeys.html#12` highlights journey 12 |
+| `/admin.html` | **Station admin** (admins only): pause or rename a station |
 
 ### On the command line
 
@@ -225,6 +227,34 @@ metro_web [--db FILE] [--web FOLDER] [--port N] [--bind ADDRESS]
 Defaults: `data/metro.db`, `web`, port `8080`, and `127.0.0.1` (this computer only). There is **no HTTPS**: see [Security](#security).
 </details>
 
+## Pausing or renaming a station (admin)
+
+When something happens to a station (flooding, works, a new name), an **admin** can change it for everyone, straight away, at `/admin.html`.
+
+- **Pause a station** from a date and time until a date and time, or **until further notice**. Trains run through without stopping: a journey can still pass through, but cannot start, end, get off or change there. Passengers see a notice, a "Closed" tag in the station list, and a note on routes that run through it. A temporary pause ends by itself at its end time.
+- **Rename a station.** The new name is used everywhere. Undo it whenever you like.
+- Every change records **who** made it, **when**, and **why**, and nothing is ever deleted (the page shows the history).
+- Changes are stored in their own table, so a **data refresh does not undo them**.
+
+Set it up once, from the project folder in the VS Code terminal:
+
+```powershell
+.\build\Release\metro_db.exe migrate            # upgrade an existing database in place (keeps accounts and saved journeys)
+.\build\Release\metro_user.exe register alice   # an ordinary account first (or use one you already have)
+.\build\Release\metro_user.exe make-admin alice # the ONLY way to become an admin
+.\build\Release\metro_web.exe                   # then open http://127.0.0.1:8080/login.html and choose "Admin log in" (or go straight to /admin.html)
+```
+
+There is **no sign-up for admins** on the web: the login page has an **Admin log in** entry for people who already have the role, and it explains how the role is given. Take the role away with `metro_user remove-admin alice`; list the admins with `metro_user admins`. A brand-new database made with `metro_db init` is already up to date and needs no `migrate`.
+
+**Limits to know:**
+- Admin accounts are ordinary local accounts. MetroGo cannot check that someone really works for DMRC; a real system would use DMRC's own login.
+- The admin tools answer only requests that come from **the same computer as the server**. There is no HTTPS yet, so an admin password would travel readable on a network.
+- A change affects MetroGo only, not DMRC. A pause does not change fares, because a fare depends only on the two end stations.
+- After any change, saved journeys are re-checked when opened and say so.
+
+More detail: [`docs/admin.md`](docs/admin.md).
+
 ## How it works
 
 <p align="center">
@@ -264,7 +294,7 @@ Edit these files in `config/`, then run `metro_import` again. Nothing needs reco
 ## Testing
 
 ```powershell
-ctest --test-dir build -C Release --output-on-failure      # 11 C++ test programs
+ctest --test-dir build -C Release --output-on-failure      # 12 C++ test programs
 node tests\test_search.js                                   # 101 checks over all 262 real station names (needs Node.js)
 .\build\Release\metro_route.exe --verify                    # router vs an independent solver, every pair, both modes
 ```
@@ -313,7 +343,7 @@ metro-planner/
 ├─ CMakeLists.txt
 ├─ config/        hand-maintained CSV files: fares, line map, settings, corrections
 ├─ data/          raw/ (put the GTFS .txt files here) and metro.db (created by you; git-ignored)
-├─ db/schema.sql  the database schema (version 5)
+├─ db/schema.sql  the database schema (version 6)
 ├─ docs/          notes, design, security, evaluation sheets, the two overview documents, images/
 ├─ src/
 │  ├─ common/     CSV reader, SQLite wrapper, text helpers
@@ -321,11 +351,12 @@ metro-planner/
 │  ├─ import/     the importer
 │  ├─ route/      network model, router, fares, planner, verifier
 │  ├─ auth/       password hashing, accounts, sessions, saved journeys
+│  ├─ admin/      renaming and pausing stations (the database side and all the validation)
 │  ├─ web/        JSON writer, request and response types, Api::handle
 │  └─ tools/      metro_db, gtfs_inspect, metro_import, metro_route, metro_user, metro_web
-├─ tests/         11 C++ test programs, test_search.js, test data
+├─ tests/         12 C++ test programs, test_search.js, test data
 ├─ third_party/   sqlite3/ and httplib/ (you add these; see Quick start)
-└─ web/           index.html, login.html, journeys.html, scripts, style.css, logo.svg, vendor/leaflet/
+└─ web/           index.html, login.html, journeys.html, admin.html, scripts, style.css, logo.svg, vendor/leaflet/
 ```
 
 About 7,200 lines of C++ in 45 files, 3,000 lines of C++ tests, and 1,400 lines of JavaScript.
@@ -340,6 +371,7 @@ About 7,200 lines of C++ in 45 files, 3,000 lines of C++ tests, and 1,400 lines 
 | [`docs/planner.md`](docs/planner.md) | What "fastest", "cheapest" and "fewest changes" mean here |
 | [`docs/data_gaps.md`](docs/data_gaps.md) | Known problems in the data |
 | [`docs/security.md`](docs/security.md) | What is protected, and what is not |
+| [`docs/admin.md`](docs/admin.md) | The station admin: how to use it, how it works, its limits |
 | [`docs/design.md`](docs/design.md) | The palette and the derived colours |
 | [`docs/problem.md`](docs/problem.md) | The problem statement and success measure (**still to be written**) |
 
@@ -351,6 +383,19 @@ direction, change, exit), built only from facts DMRC publishes. After that: time
 interface, and HTTPS deployment. The prioritised list, with the evidence each item needs, is in section 7 of the
 [Project Overview](docs/MetroGo_Project_Overview.docx).
 
+## Contributing
+
+Issues and suggestions are welcome. A very useful first contribution needs no code: **fill in the `dmrc_min`, `dmrc_changes` and
+`dmrc_fare_inr` columns of [`docs/evaluation_sheet.csv`](docs/evaluation_sheet.csv)** by asking DMRC's own planner, which gives the
+project its first real accuracy number. MetroGo's own answers for the same 30 trips can be re-created at any time:
+
+```powershell
+.\build\Release\metro_route.exe --batch docs\evaluation_pairs.csv --out data\evaluation_results.csv
+```
+
+For code changes: run `ctest` and `node tests\test_search.js` first; keep the pages free of inline scripts and styles (the
+content-security policy blocks them); put text on the page with `textContent`, never `innerHTML`; and keep
+[`docs/security.md`](docs/security.md) and [`docs/data_gaps.md`](docs/data_gaps.md) honest when something changes.
 
 ## License
 
@@ -367,8 +412,3 @@ been checked.
 The Delhi Metro Rail Corporation for publishing the network and fare information this project relies on; the
 [GTFS](https://gtfs.org/documentation/schedule/reference/) specification; the Vulture repository for hosting a copy of the feed;
 OpenStreetMap and its contributors; and the authors of SQLite, cpp-httplib and Leaflet.
-
-## Team Members
-- Harshita Agrawal
-- Vanshika Maheshwari
-- Priyanshi Tamta

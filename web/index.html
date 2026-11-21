@@ -22,6 +22,7 @@
       </span>
       <span id="account-in" hidden>
         <a class="link" id="my-journeys" href="/journeys.html">My journeys</a>
+        <a class="link" id="admin-link" href="/admin.html" hidden>Admin</a>
         <span>Signed in as <strong id="whoami"></strong></span>
         <button type="button" id="logout" class="link">Log out</button>
       </span>
@@ -30,6 +31,7 @@
 
   <main class="layout">
     <div class="left">
+      <section id="notices" class="notices" hidden aria-label="Service notices"></section>
       <section class="panel" aria-labelledby="planner-title">
         <h2 id="planner-title">Plan a journey</h2>
         <form id="plan-form" autocomplete="off">

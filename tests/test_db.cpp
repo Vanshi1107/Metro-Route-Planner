@@ -25,11 +25,11 @@ int main(int argc, char** argv) {
     Database db(":memory:", true);
     db.exec(schema);
 
-    for (const char* t : {"meta", "stations", "lines", "line_stops", "segments", "transfers", "fare_slabs", "fare_pairs", "users",
+    for (const char* t : {"meta", "stations", "lines", "line_stops", "segments", "transfers", "fare_slabs", "fare_pairs", "users", "station_changes",
                           "sessions", "login_attempts", "saved_journeys"})
         CHECK(db.tableExists(t));
 
-    CHECK_EQ(db.scalarText("SELECT value FROM meta WHERE key='schema_version';"), std::string("5"));
+    CHECK_EQ(db.scalarText("SELECT value FROM meta WHERE key='schema_version';"), std::string("6"));
 
     // Valid data is accepted.
     db.exec("INSERT INTO stations(station_id,gtfs_stop_id,name,lat,lon) VALUES (1,'A','Alpha',28.6,77.2);");
@@ -89,7 +89,13 @@ int main(int argc, char** argv) {
     db.exec(journey + "VALUES (1,'A','B','fewest_changes','weekday',1,100,0,'x',1000,1000);");                 // another option is fine
     db.exec(journey + "VALUES (1,'A','B','cheapest','weekday',1,100,0,'x',1000,1000);");                       // 'cheapest' is a valid choice
     CHECK_THROWS(db.exec("UPDATE saved_journeys SET label = '" + std::string(61, 'x') + "' WHERE journey_id = 1;"));   // label too long
-    CHECK_THROWS(db.exec("UPDATE users SET role = 'admin' WHERE user_id = 1;"));                               // there is no role column
+    // roles (schema 6): every user is a plain user until someone makes them an admin; no other role exists
+    CHECK_EQ(db.scalarText("SELECT role FROM users WHERE user_id = 1;"), std::string("user"));
+    CHECK_THROWS(db.exec("UPDATE users SET role = 'superuser' WHERE user_id = 1;"));                           // only 'user' and 'admin'
+    CHECK_THROWS(db.exec("UPDATE users SET role = NULL WHERE user_id = 1;"));
+    db.exec("UPDATE users SET role = 'admin' WHERE user_id = 1;");
+    CHECK_EQ(db.scalarText("SELECT role FROM users WHERE user_id = 1;"), std::string("admin"));
+    db.exec("UPDATE users SET role = 'user' WHERE user_id = 1;");
 
     // Saved journeys must survive a station disappearing (stored by id text, no foreign key).
     db.exec("DELETE FROM stations WHERE gtfs_stop_id='B';");

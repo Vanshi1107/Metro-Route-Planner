@@ -48,6 +48,22 @@ struct FarePair {                  // a published fare for one PAIR of stations 
     std::string validFrom, source;
 };
 
+// An admin change to a station, as stored in the station_changes table (cancelled changes are not loaded).
+struct StationChange {
+    int id = 0;
+    int station = 0;                       // the station's id in this network
+    std::string gtfsId, kind;              // kind: "rename" or "closure"
+    std::string newName, reason, createdBy;
+    long long startAt = 0, endAt = 0, createdAt = 0;   // seconds since 1970 (UTC); endAt 0 = until further notice
+};
+
+// Trains do not stop at this station for now: you may stay on a train that runs through it, but not board, get off or change there.
+struct Closure {
+    int station = 0, changeId = 0;
+    std::string reason;
+    long long startAt = 0, endAt = 0;      // endAt 0 = until further notice
+};
+
 struct Network {
     std::vector<Station> stations;
     std::vector<Service> services;
@@ -55,6 +71,8 @@ struct Network {
     std::vector<Transfer> transfers;
     std::vector<FareSlab> fareSlabs;
     std::vector<FarePair> farePairs;
+    std::vector<std::string> feedNames;    // each station's name as the feed publishes it (index = station id - 1); stations[].name may be an admin's new name
+    std::vector<StationChange> changes;    // admin renames and closures that are not cancelled (renames are already applied to the names)
     int dwellSeconds = 0;          // time a train waits at each stop
     int dataVersion = 0;
     // journey planner settings (from config/settings.csv, stored in the database)
@@ -72,6 +90,11 @@ void validateNetwork(const Network& n);
 // Reads the network from a database made by metro_db + metro_import. Throws std::runtime_error with a
 // helpful message if the schema is wrong or no network has been imported.
 Network loadNetwork(Database& db);
+
+// The closures in force at 'now' (one per station: if several overlap, the one that lasts longest).
+std::vector<Closure> closuresAt(const Network& n, long long now);
+// Closures that have not started yet but start within 'withinSeconds' of now, soonest first.
+std::vector<Closure> upcomingClosures(const Network& n, long long now, long long withinSeconds);
 
 // Turning what a person typed into a station.
 struct Resolution {

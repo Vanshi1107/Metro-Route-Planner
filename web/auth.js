@@ -10,9 +10,11 @@
 (function () {
   'use strict';
 
-  var NEXT_OK = ['/', '/index.html', '/journeys.html'];
+  var NEXT_OK = ['/', '/index.html', '/journeys.html', '/admin.html'];
 
   function $(id) { return document.getElementById(id); }
+
+  var adminMode = false;   // true when the person came to log in for the admin page (/login.html?next=/admin.html)
 
   function nextPage() {
     var n = new URLSearchParams(window.location.search).get('next');
@@ -79,9 +81,10 @@
     $('tab-register').setAttribute('aria-selected', reg ? 'true' : 'false');
     $('tab-login').tabIndex = reg ? -1 : 0;
     $('tab-register').tabIndex = reg ? 0 : -1;
-    $('auth-heading').textContent = reg ? 'Create your account' : 'Welcome back';
-    $('auth-sub').textContent = reg ? 'It is free. Save journeys and open them again any time.' : 'Log in to see and save your journeys.';
-    document.title = (reg ? 'Create account' : 'Log in') + ' \u2013 MetroGo';
+    $('auth-heading').textContent = reg ? 'Create your account' : (adminMode ? 'Admin log in' : 'Welcome back');
+    $('auth-sub').textContent = reg ? 'It is free. Save journeys and open them again any time.'
+      : (adminMode ? 'Use your admin account to pause or rename stations.' : 'Log in to see and save your journeys.');
+    document.title = (reg ? 'Create account' : (adminMode ? 'Admin log in' : 'Log in')) + ' \u2013 MetroGo';
     showMessage('');
     markInvalid(null);
     try {
@@ -158,6 +161,7 @@
   function showSignedIn(name) {
     $('signed-name').textContent = name;
     $('go-planner').setAttribute('href', nextPage());
+    $('go-planner').textContent = adminMode ? 'Go to the admin tools' : 'Go to the planner';
     $('auth-forms').hidden = true;
     $('signed-in').hidden = false;
     $('auth-heading').textContent = 'You are signed in';
@@ -186,6 +190,7 @@
     // The address can change without the page reloading (typing login.html#register while already here, or Back and
     // Forward). Follow it, so the tab shown always matches the address.
     window.addEventListener('hashchange', function () {
+      if (adminMode) return;                                  // there is no sign-up for admins
       var wanted = window.location.hash === '#register' ? 'register' : 'login';
       var shown = $('tab-register').getAttribute('aria-selected') === 'true' ? 'register' : 'login';
       if (wanted !== shown && $('auth-forms').hidden === false) setMode(wanted, true);
@@ -199,10 +204,18 @@
     $('login-submit').disabled = false;       // the buttons start switched off in the HTML; they work only once this script is running
     $('register-submit').disabled = false;
     updateRules();
-    setMode(window.location.hash === '#register' ? 'register' : 'login', false);
+    adminMode = nextPage() === '/admin.html';
+    if (adminMode) {                                          // admin log in: no sign-up, just the login and a note on how admins are made
+      $('tab-login').parentNode.hidden = true;
+      $('new-here').hidden = true;
+      $('admin-entry').hidden = true;
+      $('admin-hint').hidden = false;
+    }
+    var wantRegister = !adminMode && window.location.hash === '#register';
+    setMode(wantRegister ? 'register' : 'login', false);
     // Focus the first field NOW. Doing it after the "am I logged in?" answer arrives would pull the cursor away from
     // whatever the person has already started typing in.
-    $(window.location.hash === '#register' ? 'reg-user' : 'login-user').focus();
+    $(wantRegister ? 'reg-user' : 'login-user').focus();
     api('GET', '/api/me').then(function (me) {
       if (me.loggedIn) showSignedIn(me.username);
     }).catch(function () { /* the forms still work */ });

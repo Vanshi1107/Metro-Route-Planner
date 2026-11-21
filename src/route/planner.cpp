@@ -103,8 +103,9 @@ std::vector<Candidate> Planner::candidates(int from, int to, DayType day) const 
         return true;
     };
 
-    const Restrictions none;
-    for (Mode m : {Mode::Fastest, Mode::FewestChanges}) add(router_.find(from, to, m), none);
+    Restrictions base;                 // what is closed always applies; the variants below only add to it
+    base.closedStations = closed_;
+    for (Mode m : {Mode::Fastest, Mode::FewestChanges}) add(router_.find(from, to, m, base), base);
     if (out.empty()) return out;
 
     // Round 1 varies the two best routes, round 2 varies what round 1 found.

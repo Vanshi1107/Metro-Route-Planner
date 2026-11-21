@@ -13,6 +13,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "../common/db.h"
 #include "password.h"
@@ -36,6 +37,8 @@ struct AccountOptions {
 struct Account {
     int id = 0;
     std::string username;
+    std::string role = "user";      // "user" or "admin"
+    bool isAdmin() const { return role == "admin"; }
 };
 
 enum class Status { Ok, InvalidInput, UsernameTaken, WrongCredentials, LockedOut };
@@ -63,6 +66,12 @@ public:
 
     // The account a session token belongs to, or nothing if the token is unknown or expired.
     std::optional<Account> validateSession(const std::string& token);
+
+    // Give or take away the admin role. There is deliberately NO way to do this over the web: it is only called by
+    // the command-line tool (metro_user make-admin / remove-admin), so whoever can run it already controls the computer.
+    // Returns false if no such user exists. Throws std::invalid_argument for a role other than "user" or "admin".
+    bool setRole(const std::string& username, const std::string& role);
+    std::vector<std::string> adminNames();
     void logout(const std::string& token);
     int deleteExpiredSessions();
 

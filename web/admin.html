@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Station admin &ndash; MetroGo</title>
+  <meta name="theme-color" content="#cdd9c5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#323c2a" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="admin-page">
+  <a class="skip" href="#admin-heading">Skip to the admin tools</a>
+
+  <header class="top">
+    <a class="brand" href="/" aria-label="MetroGo, back to the planner"><img src="/logo.svg" alt="" width="32" height="32"><span class="word">Metro<b>Go</b></span></a>
+    <div class="account">
+      <a class="link" href="/">&larr; Planner</a>
+      <span id="who" hidden>Signed in as <strong id="whoami"></strong> <button type="button" id="logout" class="link">Log out</button></span>
+    </div>
+  </header>
+
+  <main class="admin-wrap">
+    <h1 id="admin-heading">Station admin</h1>
+    <p class="lead">Rename a station, or pause it when something happens. A change applies to MetroGo at once, for everyone, and is recorded with your name and the reason. It does not change anything at DMRC.</p>
+
+    <p id="admin-message" class="message" role="alert" hidden></p>
+
+    <section id="admin-gate" class="panel" hidden>
+      <h2 id="gate-title"></h2>
+      <p id="gate-text"></p>
+      <p id="gate-actions" class="actions"></p>
+    </section>
+
+    <div id="admin-tools" hidden>
+      <section class="panel" aria-labelledby="find-title">
+        <h2 id="find-title">1. Find a station</h2>
+        <div class="field">
+          <label for="st-input">Station name</label>
+          <input id="st-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="st-list" autocomplete="off" placeholder="Type a station or a line name">
+          <ul id="st-list" class="suggest" role="listbox" hidden></ul>
+        </div>
+      </section>
+
+      <section id="st-card" class="panel" hidden aria-labelledby="st-title">
+        <h2 id="st-title"></h2>
+        <p id="st-sub" class="hint"></p>
+        <p id="st-status" class="status-line" role="status"></p>
+        <p id="st-reopen" hidden><button type="button" id="reopen-btn" class="primary">Reopen now</button> <span class="hint">Ends the pause straight away.</span></p>
+        <p class="hint">Times use this computer's time zone: <strong id="tz"></strong>.</p>
+
+        <div class="admin-grid">
+          <!-- method="post": nothing typed here may ever end up in the address bar. The buttons start switched off; admin.js switches them on. -->
+          <form id="close-form" method="post" action="/admin.html" novalidate>
+            <h3>Pause this station</h3>
+            <p class="hint">Trains run through without stopping. People cannot start or end a journey here, get off here, or change trains here.</p>
+            <fieldset class="segmented">
+              <legend>For how long?</legend>
+              <label><input type="radio" name="endkind" value="until" checked><span>Until a set time</span></label>
+              <label><input type="radio" name="endkind" value="forever"><span>Until further notice</span></label>
+            </fieldset>
+            <label for="close-start">From (date and time)</label>
+            <input id="close-start" type="datetime-local">
+            <label for="close-end" id="close-end-label">Until (date and time)</label>
+            <input id="close-end" type="datetime-local">
+            <label for="close-reason">Reason (passengers will see this)</label>
+            <input id="close-reason" type="text" maxlength="200" autocomplete="off" placeholder="For example: water on the platform">
+            <button type="submit" id="close-submit" class="primary" disabled>Pause station</button>
+          </form>
+
+          <form id="rename-form" method="post" action="/admin.html" novalidate>
+            <h3>Rename this station</h3>
+            <p class="hint">The new name is used everywhere, straight away. Undo it later from the list below.</p>
+            <label for="rename-name">New name</label>
+            <input id="rename-name" type="text" maxlength="60" autocomplete="off">
+            <label for="rename-reason">Reason</label>
+            <input id="rename-reason" type="text" maxlength="200" autocomplete="off" placeholder="For example: renamed after the new line opened">
+            <button type="submit" id="rename-submit" class="primary" disabled>Rename station</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="active-title">
+        <h2 id="active-title">In force or planned</h2>
+        <div id="active-box"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="history-title">
+        <h2 id="history-title">History</h2>
+        <p class="hint">Everything that was changed, newest first. Nothing is ever deleted.</p>
+        <div id="history-box"></div>
+      </section>
+    </div>
+    <noscript><p class="message">The admin tools need JavaScript.</p></noscript>
+  </main>
+
+  <script src="/shared.js"></script>
+  <script src="/search.js"></script>
+  <script src="/admin.js"></script>
+</body>
+</html>

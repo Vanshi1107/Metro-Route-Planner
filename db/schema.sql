@@ -1,11 +1,15 @@
--- MetroGo - database schema, version 5
+-- MetroGo - database schema, version 6
 --
+-- Version 6 (station admin):
+--   * users.role ('user' or 'admin'); admins are made only from the command line (metro_user make-admin)
+--   * new table station_changes: admin renames and closures of stations, kept as an audit history
+--   * upgrade an existing database in place with: metro_db migrate
 -- Version 5 (journey preferences):
 --   * saved_journeys.mode may now also be 'cheapest'
 -- Version 4 (web milestone):
 --   * new table fare_pairs: operators that publish a fare for each PAIR of stations (the Airport Express)
 -- Version 3 (accounts and saved journeys):
---   * users: no role column (there is no admin); created_at is a Unix timestamp
+--   * users: created_at is a Unix timestamp (version 6 added the role column)
 --   * sessions: timestamps are Unix seconds
 --   * new table login_attempts: failed-login counting and temporary lockout
 --   * saved_journeys: stores the day type, label, snapshot text and timestamps
@@ -22,7 +26,7 @@ CREATE TABLE meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT INTO meta(key, value) VALUES ('schema_version', '5');
+INSERT INTO meta(key, value) VALUES ('schema_version', '6');
 
 -- ---------------------------------------------------------------------------
 -- NETWORK DATA (rebuilt from the official feed by the importer; never edited by hand)
@@ -129,7 +133,8 @@ CREATE TABLE users (
     username      TEXT NOT NULL UNIQUE COLLATE NOCASE
                   CHECK (length(username) BETWEEN 3 AND 20),
     password_hash TEXT NOT NULL,            -- 'pbkdf2-sha256$<iterations>$<salt hex>$<hash hex>'; never a password
-    created_at    INTEGER NOT NULL CHECK (typeof(created_at) = 'integer')
+    created_at    INTEGER NOT NULL CHECK (typeof(created_at) = 'integer'),
+    role          TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'))   -- 'admin' can be given only with: metro_user make-admin
 );
 
 -- The token itself is never stored, only its SHA-256, so a leaked database cannot be
@@ -176,3 +181,30 @@ CREATE TABLE saved_journeys (
     UNIQUE (user_id, from_gtfs_stop_id, to_gtfs_stop_id, mode, day_type)
 );
 CREATE INDEX idx_journeys_user ON saved_journeys(user_id, updated_at);
+
+-- ---------------------------------------------------------------------------
+-- STATION CHANGES made by an admin (survive network re-imports)
+-- A station is named by its GTFS id (text), like saved journeys, so a change is kept when the network is
+-- re-imported, and is simply ignored if the station is gone. Rows are never deleted: cancelling a change sets
+-- cancelled_at, so this table is also the audit history (who changed what, when, and why).
+--   kind 'rename'  : new_name replaces the station's name from start_at; end_at is always NULL
+--   kind 'closure' : trains do not stop at the station from start_at until end_at;
+--                    end_at NULL = until further notice (a permanent closure)
+-- All times are Unix timestamps (whole seconds, UTC).
+-- ---------------------------------------------------------------------------
+CREATE TABLE station_changes (
+    change_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    gtfs_stop_id TEXT    NOT NULL,
+    kind         TEXT    NOT NULL CHECK (kind IN ('rename', 'closure')),
+    new_name     TEXT    CHECK (new_name IS NULL OR length(new_name) BETWEEN 2 AND 60),
+    reason       TEXT    NOT NULL CHECK (length(reason) BETWEEN 5 AND 200),
+    start_at     INTEGER NOT NULL CHECK (typeof(start_at) = 'integer'),
+    end_at       INTEGER CHECK (end_at IS NULL OR typeof(end_at) = 'integer'),
+    created_at   INTEGER NOT NULL CHECK (typeof(created_at) = 'integer'),
+    created_by   TEXT    NOT NULL,
+    cancelled_at INTEGER CHECK (cancelled_at IS NULL OR typeof(cancelled_at) = 'integer'),
+    cancelled_by TEXT,
+    CHECK ((kind = 'rename' AND new_name IS NOT NULL AND end_at IS NULL) OR (kind = 'closure' AND new_name IS NULL)),
+    CHECK (end_at IS NULL OR end_at > start_at)
+);
+CREATE INDEX idx_station_changes_stop ON station_changes(gtfs_stop_id, change_id);

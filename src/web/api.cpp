@@ -7,6 +7,7 @@
 #include <sstream>
 #include <unordered_map>
 
+#include "../admin/station_admin.h"
 #include "../auth/journeys.h"
 #include "../common/text.h"
 #include "../route/fare.h"
@@ -67,6 +68,40 @@ bool parseInt(const std::string& s, int lo, int hi, int& out) {
     if (v < lo || v > hi) return false;
     out = static_cast<int>(v);
     return true;
+}
+
+// A time as whole seconds since 1970. "" means "not given" (0). Digits only, so nothing odd can get through.
+bool parseEpoch(const std::string& s, long long& out) {
+    out = 0;
+    if (s.empty()) return true;
+    if (s.size() > 12) return false;
+    for (char c : s)
+        if (c < '0' || c > '9') return false;
+    out = std::strtoll(s.c_str(), nullptr, 10);
+    return true;
+}
+
+// Is this the computer running MetroGo? ("" means the caller did not say, as when tests call the API directly.)
+bool isLocalAddress(const std::string& a) {
+    if (a.empty() || a == "::1" || a == "::ffff:127.0.0.1") return true;
+    // 127.x.x.x: exactly four numbers (0 to 255) separated by dots, the first one 127. A look-alike text such as
+    // "127.0.0.1.evil.example" must not pass.
+    int parts = 0, value = 0, digits = 0, first = -1;
+    for (size_t i = 0; i <= a.size(); ++i) {
+        if (i == a.size() || a[i] == '.') {
+            if (digits == 0 || value > 255) return false;
+            if (parts == 0) first = value;
+            ++parts;
+            value = 0;
+            digits = 0;
+        } else if (a[i] >= '0' && a[i] <= '9' && digits < 3) {
+            value = value * 10 + (a[i] - '0');
+            ++digits;
+        } else {
+            return false;
+        }
+    }
+    return parts == 4 && first == 127;
 }
 
 std::vector<std::string> segments(const std::string& path) {
@@ -131,25 +166,18 @@ struct Api::World {
     Planner planner;
     JourneyService journeys;
     std::unordered_map<std::string, int> byGtfs;
-    std::string stationsJson, linesJson;
+    std::string linesJson;
+    std::vector<std::vector<int>> linesAt;               // station id -> services that call there
+    std::vector<Closure> closuresNow;                    // stations where trains do not stop right now
+    std::unordered_map<int, size_t> closedIndex;         // station id -> index in closuresNow
+    long long clockNow = 0;
 
     World(Network n, Database& db, const std::function<long long()>& clock) : net(std::move(n)), router(net), fares(net), planner(net, router, fares), journeys(db, net, planner, fares, clock) {
         for (const auto& s : net.stations) byGtfs[s.gtfsId] = s.id;
 
-        std::vector<std::vector<int>> linesAt(net.stations.size() + 1);
+        linesAt.assign(net.stations.size() + 1, std::vector<int>());
         for (const auto& sv : net.services)
             for (int st : sv.stations) linesAt[static_cast<size_t>(st)].push_back(sv.id);
-
-        JsonWriter a;
-        a.beginArray();
-        for (const auto& s : net.stations) {
-            a.beginObject().field("id", s.id).field("gtfsId", s.gtfsId).field("name", s.name).field("lat", s.lat).field("lon", s.lon);
-            a.key("lines").beginArray();
-            for (int l : linesAt[static_cast<size_t>(s.id)]) a.value(l);
-            a.endArray().endObject();
-        }
-        a.endArray();
-        stationsJson = a.str();
 
         JsonWriter b;
         b.beginArray();
@@ -164,6 +192,54 @@ struct Api::World {
     }
 
     void stationRef(JsonWriter& w, int id) const { w.beginObject().field("id", id).field("name", net.station(id).name).endObject(); }
+
+    // ---- closures (an admin paused a station). They depend on the time, so they are worked out for every request.
+    void refreshClosures(long long now) {
+        clockNow = now;
+        closuresNow = closuresAt(net, now);
+        closedIndex.clear();
+        std::vector<int> ids;
+        for (size_t i = 0; i < closuresNow.size(); ++i) {
+            closedIndex[closuresNow[i].station] = i;
+            ids.push_back(closuresNow[i].station);
+        }
+        planner.setClosedStations(ids);   // every search, including saved-journey recomputation, now avoids stopping there
+    }
+    const Closure* closureOf(int station) const {
+        const auto it = closedIndex.find(station);
+        return it == closedIndex.end() ? nullptr : &closuresNow[it->second];
+    }
+    void closure(JsonWriter& w, const Closure& c) const {
+        w.beginObject();
+        w.key("station");
+        stationRef(w, c.station);
+        w.field("changeId", c.changeId).field("reason", c.reason).field("startAt", c.startAt);
+        w.key("until");
+        if (c.endAt == 0) w.null();
+        else w.value(c.endAt);
+        w.field("permanent", c.endAt == 0).field("status", std::string(c.startAt <= clockNow ? "active" : "upcoming"));
+        w.endObject();
+    }
+    std::string stationsNow() const {
+        JsonWriter a;
+        a.beginArray();
+        for (const auto& s : net.stations) {
+            a.beginObject().field("id", s.id).field("gtfsId", s.gtfsId).field("name", s.name).field("lat", s.lat).field("lon", s.lon);
+            a.key("lines").beginArray();
+            for (int l : linesAt[static_cast<size_t>(s.id)]) a.value(l);
+            a.endArray();
+            if (const Closure* c = closureOf(s.id)) {
+                a.key("closed").beginObject().field("reason", c->reason).field("startAt", c->startAt);
+                a.key("until");
+                if (c->endAt == 0) a.null();
+                else a.value(c->endAt);
+                a.endObject();
+            }
+            a.endObject();
+        }
+        a.endArray();
+        return a.str();
+    }
 
     void serviceRef(JsonWriter& w, int id) const {
         const Service& s = net.service(id);
@@ -232,7 +308,17 @@ struct Api::World {
             }
             w.endObject();
         }
-        w.endArray().endObject();
+        w.endArray();
+        // closed stations this route passes without stopping (you stay on the train)
+        std::vector<int> passed;
+        for (const auto& s : r.steps)
+            if (s.kind == Step::Kind::Ride)
+                for (int v : s.via)
+                    if (closureOf(v) && std::find(passed.begin(), passed.end(), v) == passed.end()) passed.push_back(v);
+        w.key("closedPassed").beginArray();
+        for (int v : passed) closure(w, *closureOf(v));
+        w.endArray();
+        w.endObject();
     }
 
     void gtfsRef(JsonWriter& w, const std::string& gtfsId) const {
@@ -263,12 +349,14 @@ struct Api::World {
 // Construction, reloading
 // ---------------------------------------------------------------------------------------------------
 
-Api::Api(Database& db, ApiConfig config) : db_(db), cfg_(std::move(config)), accounts_(db, cfg_.account) {
+Api::Api(Database& db, ApiConfig config) : db_(db), cfg_(std::move(config)), accounts_(db, cfg_.account), admin_(db, cfg_.account.clock) {
     world_ = std::make_unique<World>(loadNetwork(db_), db_, cfg_.account.clock);
     loadedVersion_ = std::to_string(world_->net.dataVersion);
 }
 
 Api::~Api() = default;
+
+long long Api::now() const { return cfg_.account.clock ? cfg_.account.clock() : systemNow(); }
 
 int Api::dataVersion() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -296,6 +384,7 @@ Response Api::handle(const Request& req) {
     bool api = req.path.rfind("/api/", 0) == 0 || req.path == "/api";
     try {
         reloadIfDataChanged();
+        world_->refreshClosures(now());   // closures start and end with the clock, so this is worked out for every request
         r = dispatch(req);
     } catch (const std::exception& e) {
         if (cfg_.log) cfg_.log(std::string("internal error handling ") + req.method + " " + req.path + ": " + e.what());
@@ -371,6 +460,103 @@ Response Api::serveStatic(const std::string& rawPath) {
 // the API
 // ---------------------------------------------------------------------------------------------------
 
+// Everything under /api/admin/. Four checks, in this order, before anything happens:
+//   1. the request comes from this computer (unless the site was set up for HTTPS and adminFromAnywhere is on)
+//   2. someone is logged in
+//   3. that account has the admin role (given only from the command line)
+//   4. for changes: the CSRF header and Origin checks that handleApi already applied to every POST
+Response Api::handleAdmin(const Request& req, const std::vector<std::string>& seg, bool isGet, bool isPost) {
+    if (!cfg_.adminFromAnywhere && !isLocalAddress(req.remoteAddr)) return errorJson(403, "The admin tools can only be used from the computer that runs MetroGo.");
+    const auto acct = currentAccount(req);
+    if (!acct) return errorJson(401, "Log in first.");
+    if (!acct->isAdmin()) return errorJson(403, "This account is not an admin.");
+    const std::string b = seg.size() == 3 ? seg[2] : std::string();
+    World& w = *world_;
+    const long long t = now();
+
+    if (b == "overview") {
+        if (!isGet) return methodNotAllowed("GET, HEAD");
+        const auto rows = admin_.history(500);
+        std::unordered_map<std::string, int> latestRename;    // station -> id of its newest rename that was not cancelled
+        for (const auto& c : rows)
+            if (c.kind == "rename" && c.cancelledAt == 0) {
+                int& v = latestRename[c.gtfsId];
+                if (c.id > v) v = c.id;
+            }
+        JsonWriter j;
+        j.beginObject().field("now", t).field("dataVersion", w.net.dataVersion).field("username", acct->username);
+        j.key("changes").beginArray();
+        for (const auto& c : rows) {
+            std::string status;
+            if (c.cancelledAt != 0) status = "cancelled";
+            else if (c.kind == "rename") status = latestRename[c.gtfsId] == c.id ? "current" : "superseded";
+            else if (c.startAt > t) status = "upcoming";
+            else if (c.endAt != 0 && c.endAt <= t) status = "ended";
+            else status = "active";
+            const auto it = w.byGtfs.find(c.gtfsId);
+            j.beginObject().field("id", c.id).field("kind", c.kind);
+            j.key("station").beginObject().field("gtfsId", c.gtfsId);
+            j.key("id");
+            if (it == w.byGtfs.end()) j.null();
+            else j.value(it->second);
+            j.key("name");
+            if (it == w.byGtfs.end()) j.null();
+            else j.value(w.net.station(it->second).name);
+            j.key("feedName");
+            if (it == w.byGtfs.end()) j.null();
+            else j.value(w.net.feedNames[static_cast<size_t>(it->second - 1)]);
+            j.endObject();
+            j.key("newName");
+            if (c.kind == "rename") j.value(c.newName);
+            else j.null();
+            j.field("reason", c.reason).field("startAt", c.startAt);
+            j.key("endAt");
+            if (c.endAt == 0) j.null();
+            else j.value(c.endAt);
+            j.field("createdAt", c.createdAt).field("createdBy", c.createdBy);
+            j.key("cancelledAt");
+            if (c.cancelledAt == 0) j.null();
+            else j.value(c.cancelledAt);
+            j.key("cancelledBy");
+            if (c.cancelledAt == 0) j.null();
+            else j.value(c.cancelledBy);
+            j.field("status", status);
+            j.endObject();
+        }
+        j.endArray().endObject();
+        return json(200, j);
+    }
+
+    if (b == "rename" || b == "close" || b == "cancel") {
+        if (!isPost) return methodNotAllowed("POST");
+        admin::Result res;
+        if (b == "cancel") {
+            int id = 0;
+            if (!parseInt(req.formParam("change"), 1, 2000000000, id)) return errorJson(400, "Choose a change.");
+            res = admin_.cancel(id, acct->username);
+        } else {
+            int sid = 0;
+            if (!parseInt(req.formParam("station"), 1, static_cast<int>(w.net.stations.size()), sid)) return errorJson(400, "Choose a station.");
+            const std::string gtfsId = w.net.station(sid).gtfsId;
+            if (b == "rename") {
+                res = admin_.rename(gtfsId, req.formParam("name"), req.formParam("reason"), acct->username);
+            } else {
+                long long startAt = 0, endAt = 0;
+                if (!parseEpoch(req.formParam("start"), startAt) || !parseEpoch(req.formParam("end"), endAt)) return errorJson(400, "The start or end time is not valid.");
+                res = admin_.close(gtfsId, req.formParam("reason"), startAt, endAt, acct->username);
+            }
+        }
+        if (res.outcome == admin::Outcome::NotFound) return errorJson(404, res.message);
+        if (res.outcome != admin::Outcome::Ok) return errorJson(400, res.message);
+        reloadIfDataChanged();                 // the change raised data_version: pick it up now, so the admin sees it straight away
+        world_->refreshClosures(now());
+        JsonWriter j;
+        j.beginObject().field("ok", true).field("message", res.message).field("changeId", res.changeId).field("dataVersion", world_->net.dataVersion).endObject();
+        return json(200, j);
+    }
+    return errorJson(404, "Not found.");
+}
+
 Response Api::handleApi(const Request& req) {
     const auto seg = segments(req.path);   // seg[0] == "api"
     const bool isGet = req.method == "GET" || req.method == "HEAD";
@@ -411,8 +597,18 @@ Response Api::handleApi(const Request& req) {
         if (!isGet) return methodNotAllowed("GET, HEAD");
         Response r;
         r.contentType = "application/json; charset=utf-8";
-        r.body = w.stationsJson;
+        r.body = w.stationsNow();
         return r;
+    }
+    if (a == "notices" && seg.size() == 2) {      // what is closed now, and what will close within a week
+        if (!isGet) return methodNotAllowed("GET, HEAD");
+        JsonWriter j;
+        j.beginObject().field("now", w.clockNow);
+        j.key("closures").beginArray();
+        for (const auto& c : w.closuresNow) w.closure(j, c);
+        for (const auto& c : upcomingClosures(w.net, w.clockNow, 7LL * 24 * 3600)) w.closure(j, c);
+        j.endArray().endObject();
+        return json(200, j);
     }
     if (a == "lines" && seg.size() == 2) {
         if (!isGet) return methodNotAllowed("GET, HEAD");
@@ -459,6 +655,22 @@ Response Api::handleApi(const Request& req) {
         Preference prefer = Preference::Fastest;
         if (!req.queryParam("prefer").empty() && !parsePreference(req.queryParam("prefer"), prefer)) return errorJson(400, "Choose fastest, cheapest or fewest changes.");
 
+        for (int id : {from, to}) {    // trains do not stop at a closed station, so a journey cannot start or end there
+            if (const Closure* c = w.closureOf(id)) {
+                JsonWriter j;
+                j.beginObject().field("found", false);
+                j.key("from");
+                w.stationRef(j, from);
+                j.key("to");
+                w.stationRef(j, to);
+                j.field("day", dayName).field("dataVersion", w.net.dataVersion).field("prefer", preferenceName(prefer));
+                j.field("message", w.net.station(id).name + " is closed, so trains do not stop there.");
+                j.key("closed");
+                w.closure(j, *c);
+                j.endObject();
+                return json(200, j);
+            }
+        }
         const PlanResult plan = w.planner.plan(from, to, day, prefer);
         JsonWriter j;
         j.beginObject().field("found", plan.found);
@@ -492,13 +704,16 @@ Response Api::handleApi(const Request& req) {
         return json(200, j);
     }
 
+    // ---- admin tools (an admin pauses or renames a station) ---------------------------------------------
+    if (a == "admin") return handleAdmin(req, seg, isGet, isPost);
+
     // ---- accounts --------------------------------------------------------------------------------------
     if (a == "me" && seg.size() == 2) {
         if (!isGet) return methodNotAllowed("GET, HEAD");
         const auto acct = currentAccount(req);
         JsonWriter j;
         j.beginObject().field("loggedIn", acct.has_value());
-        if (acct) j.field("username", acct->username);
+        if (acct) j.field("username", acct->username).field("role", acct->role);
         j.endObject();
         return json(200, j);
     }

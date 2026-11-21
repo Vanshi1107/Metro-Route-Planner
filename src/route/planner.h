@@ -21,6 +21,7 @@
 // computable fare, "cheapest" falls back to the fastest routes and says so.
 #pragma once
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "fare.h"
@@ -72,6 +73,11 @@ public:
 
     PlanResult plan(int fromStation, int toStation, DayType day, Preference prefer) const;
 
+    // Stations that are closed right now (trains run through without stopping). Applied to every search the planner makes,
+    // including the saved-journey recomputation. The web layer sets this from the clock before each request.
+    void setClosedStations(std::vector<int> stationIds) { closed_ = std::move(stationIds); }
+    const std::vector<int>& closedStations() const { return closed_; }
+
     // The distinct, worthwhile routes found, with badges (exposed for tests).
     std::vector<Candidate> candidates(int fromStation, int toStation, DayType day) const;
 
@@ -80,6 +86,7 @@ private:
     const Router& router_;
     const FareCalculator& fares_;
     PlannerSettings settings_;
+    std::vector<int> closed_;
 };
 
 // Identifies a journey by the lines and stations a passenger would see. Two routes with the same signature are the same
