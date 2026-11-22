@@ -101,7 +101,7 @@
         var n = lineDisplayName(sv.name);
         if (!seen[n]) { seen[n] = true; lines.push({ name: n, colour: sv.colour }); }
       });
-      var entry = { id: s.id, name: s.name, words: words(s.name), key: words(s.name).join(' '), lines: lines, closed: s.closed || null };
+      var entry = { id: s.id, name: s.name, words: words(s.name), key: words(s.name).join(' '), lines: lines, closed: s.closed || null, noTrains: s.noTrains || null };
       byId[s.id] = entry;
       return entry;
     });

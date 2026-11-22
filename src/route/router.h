@@ -88,6 +88,7 @@ public:
 
     // Best cost from one origin to every station (index = station id). Used for verification.
     std::vector<StationCost> costsFrom(int fromStation, Mode mode) const;
+    std::vector<StationCost> costsFrom(int fromStation, Mode mode, const Restrictions& restrictions) const;   // closed stations still count as reachable here (a train passes them); callers decide
 
     // The best route from one origin to EVERY station, from a single search (index = station id).
     std::vector<Route> routesFrom(int fromStation, Mode mode) const;

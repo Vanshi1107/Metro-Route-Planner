@@ -272,12 +272,14 @@ Options Router::plan(int from, int to) const {
     return o;
 }
 
-std::vector<StationCost> Router::costsFrom(int from, Mode mode) const {
+std::vector<StationCost> Router::costsFrom(int from, Mode mode) const { return costsFrom(from, mode, Restrictions()); }
+
+std::vector<StationCost> Router::costsFrom(int from, Mode mode, const Restrictions& restrictions) const {
     checkStation(from);
-    SearchResult r = search(from, -1, mode);
+    SearchResult r = search(from, -1, mode, &restrictions);
     std::vector<StationCost> out(net_.stations.size() + 1);
-    // Nodes are settled in increasing cost order, but 'dist' holds each node's final cost, so the best
-    // arrival at a station is simply the smallest final cost among its nodes.
+    // When the search has settled, 'dist' holds each node's final cost, so the best arrival at a station is simply the
+    // smallest final cost among its nodes.
     std::vector<Cost> best(net_.stations.size() + 1, Cost{INT_MAX, INT_MAX});
     for (size_t node = 0; node < r.dist.size(); ++node) {
         const Cost& c = r.dist[node];

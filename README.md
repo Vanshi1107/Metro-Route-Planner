@@ -61,7 +61,7 @@ question of the next phase, and is described honestly in the [Project Overview](
 - **Accounts and saved journeys.** One-tap **Save**, optional names, favourites, **Plan again**, delete. Press Save while logged
   out and you are taken to log in, then returned to the same search with the journey saved.
 - **Readable by design.** A palette with measured contrast, an automatic dark theme, a phone-sized layout, keyboard use.
-- **Station admin.** When something happens to a station, an admin can **pause** it (from a date and time until a date and time, or until further notice) or **rename** it. Passengers see it at once, and every change is recorded with who, when and why. See [Pausing or renaming a station](#pausing-or-renaming-a-station-admin).
+- **Station and line admin.** When something happens, an admin can **pause** or **rename** a station, **suspend a whole line**, or publish a **delay** or an **announcement**, each from a date and time until a date and time or until further notice. Before a pause or a suspension, the page shows its **impact** on journeys. Passengers see it at once, and every change is recorded with who, when and why. See [Pausing or renaming a station](#pausing-or-renaming-a-station-admin).
 - **Command-line tools** for routes, accounts, admins, and checking the router against an independent solver.
 
 <table>
@@ -233,13 +233,18 @@ When something happens to a station (flooding, works, a new name), an **admin** 
 
 - **Pause a station** from a date and time until a date and time, or **until further notice**. Trains run through without stopping: a journey can still pass through, but cannot start, end, get off or change there. Passengers see a notice, a "Closed" tag in the station list, and a note on routes that run through it. A temporary pause ends by itself at its end time.
 - **Rename a station.** The new name is used everywhere. Undo it whenever you like.
+- **Suspend a whole line** (for example the Blue Line). No route uses it; stations with no other line show "No trains", and passengers are told why.
+- **Publish a delay or an announcement** for one line or all lines. These are information only: routes and times do not change, and route cards say so.
+- **See the impact first.** Before a pause or a suspension, the page shows how many journeys would lose every route, how many would be slower (and by how much), which stations would have no trains, and how many saved journeys are affected. It compares the fastest journeys between every pair of stations; on the real network this took about 0.1 s in testing.
+- **Change the end** of anything that has one (later, earlier, or until further notice), or **end it now**. The old entry is kept and marked "replaced".
+- **Search and filter the history**, and **download it as CSV** (cells that a spreadsheet would treat as formulas are made harmless).
 - Every change records **who** made it, **when**, and **why**, and nothing is ever deleted (the page shows the history).
 - Changes are stored in their own table, so a **data refresh does not undo them**.
 
 Set it up once, from the project folder in the VS Code terminal:
 
 ```powershell
-.\build\Release\metro_db.exe migrate            # upgrade an existing database in place (keeps accounts and saved journeys)
+.\build\Release\metro_db.exe migrate            # upgrade an existing database to version 7 (keeps accounts, journeys and admin changes)
 .\build\Release\metro_user.exe register alice   # an ordinary account first (or use one you already have)
 .\build\Release\metro_user.exe make-admin alice # the ONLY way to become an admin
 .\build\Release\metro_web.exe                   # then open http://127.0.0.1:8080/login.html and choose "Admin log in" (or go straight to /admin.html)
@@ -343,7 +348,7 @@ metro-planner/
 ├─ CMakeLists.txt
 ├─ config/        hand-maintained CSV files: fares, line map, settings, corrections
 ├─ data/          raw/ (put the GTFS .txt files here) and metro.db (created by you; git-ignored)
-├─ db/schema.sql  the database schema (version 6)
+├─ db/schema.sql  the database schema (version 7)
 ├─ docs/          notes, design, security, evaluation sheets, the two overview documents, images/
 ├─ src/
 │  ├─ common/     CSV reader, SQLite wrapper, text helpers
@@ -351,7 +356,7 @@ metro-planner/
 │  ├─ import/     the importer
 │  ├─ route/      network model, router, fares, planner, verifier
 │  ├─ auth/       password hashing, accounts, sessions, saved journeys
-│  ├─ admin/      renaming and pausing stations (the database side and all the validation)
+│  ├─ admin/      station and line changes (the database side and all the validation)
 │  ├─ web/        JSON writer, request and response types, Api::handle
 │  └─ tools/      metro_db, gtfs_inspect, metro_import, metro_route, metro_user, metro_web
 ├─ tests/         12 C++ test programs, test_search.js, test data

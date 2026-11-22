@@ -90,6 +90,24 @@ Result bad(Outcome o, const std::string& message) {
 
 }  // namespace
 
+namespace {
+const char* tableOf(Scope s) { return s == Scope::Station ? "station_changes" : "line_changes"; }
+
+// The same time rules for every kind of change that has a start and an end.
+std::string checkTimes(long long t, long long& startAt, long long endAt) {
+    if (startAt == 0) startAt = t;
+    if (startAt < 0) return "The start time is not valid.";
+    if (startAt > t + kMaxStartAhead) return "A change can be planned at most a year ahead.";
+    if (endAt < 0) return "The end time is not valid.";
+    if (endAt != 0) {
+        if (endAt <= startAt) return "The end must be after the start.";
+        if (endAt <= t) return "The end is already in the past.";
+        if (endAt > t + kMaxEndAhead) return "The end is too far ahead. Choose 'until further notice' instead.";
+    }
+    return std::string();
+}
+}  // namespace
+
 Result StationAdmin::rename(const std::string& gtfsId, const std::string& newNameRaw, const std::string& reason, const std::string& by) {
     if (by.empty()) return bad(Outcome::Invalid, "Who is making this change?");
     const auto names = currentNames(db_);
@@ -126,15 +144,8 @@ Result StationAdmin::close(const std::string& gtfsId, const std::string& reason,
     const std::string why = checkReason(reason);
     if (!why.empty()) return bad(Outcome::Invalid, why);
     const long long t = now();
-    if (startAt == 0) startAt = t;
-    if (startAt < 0) return bad(Outcome::Invalid, "The start time is not valid.");
-    if (startAt > t + kMaxStartAhead) return bad(Outcome::Invalid, "A closure can be planned at most a year ahead.");
-    if (endAt < 0) return bad(Outcome::Invalid, "The end time is not valid.");
-    if (endAt != 0) {
-        if (endAt <= startAt) return bad(Outcome::Invalid, "The end must be after the start.");
-        if (endAt <= t) return bad(Outcome::Invalid, "The end is already in the past.");
-        if (endAt > t + kMaxEndAhead) return bad(Outcome::Invalid, "The end is too far ahead. Choose 'until further notice' instead.");
-    }
+    const std::string timeProblem = checkTimes(t, startAt, endAt);
+    if (!timeProblem.empty()) return bad(Outcome::Invalid, timeProblem);
 
     Transaction tx(db_);
     db_.exec("INSERT INTO station_changes(gtfs_stop_id, kind, new_name, reason, start_at, end_at, created_at, created_by) VALUES (" + sqlQuote(gtfsId) +
@@ -149,23 +160,102 @@ Result StationAdmin::close(const std::string& gtfsId, const std::string& reason,
     return r;
 }
 
-Result StationAdmin::cancel(int changeId, const std::string& by) {
+Result StationAdmin::cancel(int changeId, const std::string& by) { return cancel(Scope::Station, changeId, by); }
+
+
+Result StationAdmin::lineChange(const std::string& family, const std::string& kind, int delayMinutes, const std::string& reason, long long startAt,
+                                long long endAt, const std::string& by) {
     if (by.empty()) return bad(Outcome::Invalid, "Who is making this change?");
-    const auto rows = db_.rows("SELECT kind, ifnull(end_at, 0), cancelled_at IS NOT NULL FROM station_changes WHERE change_id = " + std::to_string(changeId) + ";");
+    if (kind != "suspension" && kind != "delay" && kind != "announcement") return bad(Outcome::Invalid, "Choose a suspension, a delay or an announcement.");
+    if (family.empty()) {
+        if (kind != "announcement") return bad(Outcome::Invalid, "Choose a line.");
+    } else if (db_.scalarInt("SELECT COUNT(*) FROM lines WHERE family = " + sqlQuote(family) + ";") == 0) {
+        return bad(Outcome::NotFound, "There is no such line.");
+    }
+    if (kind == "delay") {
+        if (delayMinutes < 1 || delayMinutes > 240) return bad(Outcome::Invalid, "A delay must be between 1 and 240 minutes.");
+    } else if (delayMinutes != 0) {
+        return bad(Outcome::Invalid, "Only a delay has a number of minutes.");
+    }
+    const std::string why = checkReason(reason);
+    if (!why.empty()) return bad(Outcome::Invalid, why);
+    const long long t = now();
+    const std::string timeProblem = checkTimes(t, startAt, endAt);
+    if (!timeProblem.empty()) return bad(Outcome::Invalid, timeProblem);
+
+    Transaction tx(db_);
+    db_.exec("INSERT INTO line_changes(line_family, kind, delay_minutes, reason, start_at, end_at, created_at, created_by) VALUES (" +
+             (family.empty() ? std::string("NULL") : sqlQuote(family)) + ", " + sqlQuote(kind) + ", " +
+             (kind == "delay" ? std::to_string(delayMinutes) : std::string("NULL")) + ", " + sqlQuote(reason) + ", " + std::to_string(startAt) + ", " +
+             (endAt == 0 ? std::string("NULL") : std::to_string(endAt)) + ", " + std::to_string(t) + ", " + sqlQuote(by) + ");");
+    Result r;
+    r.changeId = static_cast<int>(db_.scalarInt("SELECT last_insert_rowid();"));
+    bumpDataVersion();
+    tx.commit();
+    r.outcome = Outcome::Ok;
+    r.message = kind == "suspension" ? (endAt == 0 ? "The line is suspended until further notice." : "The line is suspended until the time you chose.")
+              : kind == "delay"      ? "The delay notice is published."
+                                     : "The announcement is published.";
+    return r;
+}
+
+Result StationAdmin::extend(Scope scope, int changeId, long long newEnd, const std::string& by) {
+    if (by.empty()) return bad(Outcome::Invalid, "Who is making this change?");
+    const std::string table = tableOf(scope);
+    const auto rows = db_.rows("SELECT kind, start_at, ifnull(end_at, 0), cancelled_at IS NOT NULL FROM " + table + " WHERE change_id = " + std::to_string(changeId) + ";");
+    if (rows.empty()) return bad(Outcome::NotFound, "There is no such change.");
+    const std::string kind = rows[0][0];
+    if (kind == "rename") return bad(Outcome::Invalid, "A rename has no end time.");
+    if (rows[0][3] == "1") return bad(Outcome::Invalid, "That change was cancelled, so its end cannot be moved.");
+    const long long t = now(), startAt = toLL(rows[0][1]), oldEnd = toLL(rows[0][2]);
+    if (oldEnd != 0 && oldEnd <= t) return bad(Outcome::Invalid, "That change has already ended.");
+    if (newEnd == oldEnd) return bad(Outcome::Invalid, "That is already its end time.");
+    if (newEnd < 0) return bad(Outcome::Invalid, "The end time is not valid.");
+    if (newEnd != 0) {
+        if (newEnd <= startAt) return bad(Outcome::Invalid, "The end must be after the start.");
+        if (newEnd <= t) return bad(Outcome::Invalid, "The end is already in the past. To end it now, use Reopen or End now.");
+        if (newEnd > t + kMaxEndAhead) return bad(Outcome::Invalid, "The end is too far ahead. Choose 'until further notice' instead.");
+    }
+    const std::string endSql = newEnd == 0 ? std::string("NULL") : std::to_string(newEnd);
+    Transaction tx(db_);
+    if (scope == Scope::Station) {
+        db_.exec("INSERT INTO station_changes(gtfs_stop_id, kind, new_name, reason, start_at, end_at, created_at, created_by, replaces_change_id) "
+                 "SELECT gtfs_stop_id, kind, new_name, reason, start_at, " + endSql + ", " + std::to_string(t) + ", " + sqlQuote(by) + ", change_id "
+                 "FROM station_changes WHERE change_id = " + std::to_string(changeId) + ";");
+    } else {
+        db_.exec("INSERT INTO line_changes(line_family, kind, delay_minutes, reason, start_at, end_at, created_at, created_by, replaces_change_id) "
+                 "SELECT line_family, kind, delay_minutes, reason, start_at, " + endSql + ", " + std::to_string(t) + ", " + sqlQuote(by) + ", change_id "
+                 "FROM line_changes WHERE change_id = " + std::to_string(changeId) + ";");
+    }
+    Result r;
+    r.changeId = static_cast<int>(db_.scalarInt("SELECT last_insert_rowid();"));
+    db_.exec("UPDATE " + table + " SET cancelled_at = " + std::to_string(t) + ", cancelled_by = " + sqlQuote(by) + " WHERE change_id = " + std::to_string(changeId) + ";");
+    bumpDataVersion();
+    tx.commit();
+    r.outcome = Outcome::Ok;
+    r.message = newEnd == 0 ? "It now lasts until further notice." : (oldEnd != 0 && newEnd < oldEnd ? "The end was moved earlier." : "The end was moved later.");
+    return r;
+}
+
+Result StationAdmin::cancel(Scope scope, int changeId, const std::string& by) {
+    if (by.empty()) return bad(Outcome::Invalid, "Who is making this change?");
+    const std::string table = tableOf(scope);
+    const auto rows = db_.rows("SELECT kind, ifnull(end_at, 0), cancelled_at IS NOT NULL FROM " + table + " WHERE change_id = " + std::to_string(changeId) + ";");
     if (rows.empty()) return bad(Outcome::NotFound, "There is no such change.");
     if (rows[0][2] == "1") return bad(Outcome::Invalid, "That change was already cancelled.");
     const long long t = now();
     const long long endAt = toLL(rows[0][1]);
-    if (rows[0][0] == "closure" && endAt != 0 && endAt <= t) return bad(Outcome::Invalid, "That closure has already ended.");
+    if (rows[0][0] != "rename" && endAt != 0 && endAt <= t) return bad(Outcome::Invalid, "That change has already ended.");
 
     Transaction tx(db_);
-    db_.exec("UPDATE station_changes SET cancelled_at = " + std::to_string(t) + ", cancelled_by = " + sqlQuote(by) + " WHERE change_id = " + std::to_string(changeId) + ";");
+    db_.exec("UPDATE " + table + " SET cancelled_at = " + std::to_string(t) + ", cancelled_by = " + sqlQuote(by) + " WHERE change_id = " + std::to_string(changeId) + ";");
     bumpDataVersion();
     tx.commit();
     Result r;
     r.outcome = Outcome::Ok;
     r.changeId = changeId;
-    r.message = rows[0][0] == "closure" ? "The station is open again." : "The rename was undone.";
+    const std::string& k = rows[0][0];
+    r.message = k == "closure" ? "The station is open again." : k == "rename" ? "The rename was undone." : k == "suspension" ? "The line is running again." : "The notice was ended.";
     return r;
 }
 
@@ -173,7 +263,8 @@ std::vector<ChangeRow> StationAdmin::history(int limit) {
     limit = std::max(1, std::min(limit, 2000));
     std::vector<ChangeRow> out;
     for (const auto& r : db_.rows("SELECT change_id, gtfs_stop_id, kind, ifnull(new_name, ''), reason, start_at, ifnull(end_at, 0), created_at, created_by, "
-                                  "ifnull(cancelled_at, 0), ifnull(cancelled_by, '') FROM station_changes ORDER BY change_id DESC LIMIT " + std::to_string(limit) + ";")) {
+                                  "ifnull(cancelled_at, 0), ifnull(cancelled_by, ''), ifnull(replaces_change_id, 0) FROM station_changes ORDER BY change_id DESC LIMIT " +
+                                  std::to_string(limit) + ";")) {
         ChangeRow c;
         c.id = static_cast<int>(toLL(r[0]));
         c.gtfsId = r[1];
@@ -186,8 +277,40 @@ std::vector<ChangeRow> StationAdmin::history(int limit) {
         c.createdBy = r[8];
         c.cancelledAt = toLL(r[9]);
         c.cancelledBy = r[10];
+        c.replacesId = static_cast<int>(toLL(r[11]));
         out.push_back(c);
     }
+    return out;
+}
+
+std::vector<ChangeRow> StationAdmin::historyAll(int limit) {
+    limit = std::max(1, std::min(limit, 5000));
+    std::vector<ChangeRow> out = history(limit);
+    for (const auto& r : db_.rows("SELECT change_id, ifnull(line_family, ''), kind, ifnull(delay_minutes, 0), reason, start_at, ifnull(end_at, 0), created_at, "
+                                  "created_by, ifnull(cancelled_at, 0), ifnull(cancelled_by, ''), ifnull(replaces_change_id, 0) FROM line_changes "
+                                  "ORDER BY change_id DESC LIMIT " + std::to_string(limit) + ";")) {
+        ChangeRow c;
+        c.scope = Scope::Line;
+        c.id = static_cast<int>(toLL(r[0]));
+        c.lineFamily = r[1];
+        c.kind = r[2];
+        c.delayMinutes = static_cast<int>(toLL(r[3]));
+        c.reason = r[4];
+        c.startAt = toLL(r[5]);
+        c.endAt = toLL(r[6]);
+        c.createdAt = toLL(r[7]);
+        c.createdBy = r[8];
+        c.cancelledAt = toLL(r[9]);
+        c.cancelledBy = r[10];
+        c.replacesId = static_cast<int>(toLL(r[11]));
+        out.push_back(c);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const ChangeRow& a, const ChangeRow& b) {
+        if (a.createdAt != b.createdAt) return a.createdAt > b.createdAt;
+        if (a.scope != b.scope) return a.scope == Scope::Line;   // a stable order for rows made in the same second
+        return a.id > b.id;
+    });
+    if (static_cast<int>(out.size()) > limit) out.resize(static_cast<size_t>(limit));
     return out;
 }
 

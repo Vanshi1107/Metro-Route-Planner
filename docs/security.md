@@ -69,6 +69,7 @@ An admin can rename or pause a station for everyone, so this is the most powerfu
 - **Every input is validated** in `src/admin/station_admin.cpp`: names of 2 to 60 characters, not another station's name, valid text with no control characters; reasons of 5 to 200 characters; end after start and after now. SQL text goes through the same `sqlQuote` as everywhere.
 - **An audit trail.** Changes are never deleted. Each row records who made it and when, and who cancelled it and when.
 - **Text is shown as plain text.** A reason such as `<img onerror=...>` is displayed literally to admins and passengers (a browser test checks it).
+- **The CSV export** is admin-only and local-only like the rest, and defuses spreadsheet formulas: a cell starting with `=`, `+`, `-` or `@` gets an apostrophe in front, so opening the file cannot run anything.
 - **Safe defaults on the page.** The pause form starts on "until a set time" for every station, so a permanent pause cannot be left selected by accident, and every pause or rename asks for confirmation.
 
 What it does **not** do: it cannot tell that an admin is really a DMRC employee (admins are local accounts); there is no second person to approve a change; and with plain HTTP an admin password is readable on a network, which is why the tools are limited to the local computer.

@@ -1,6 +1,8 @@
 #include "api.h"
 
 #include <algorithm>
+#include <chrono>
+#include <set>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -11,6 +13,7 @@
 #include "../auth/journeys.h"
 #include "../common/text.h"
 #include "../route/fare.h"
+#include "../route/impact.h"
 #include "../route/network.h"
 #include "../route/planner.h"
 #include "../route/present.h"
@@ -171,6 +174,8 @@ struct Api::World {
     std::vector<Closure> closuresNow;                    // stations where trains do not stop right now
     std::unordered_map<int, size_t> closedIndex;         // station id -> index in closuresNow
     long long clockNow = 0;
+    std::vector<LineChange> lineNow;                     // line suspensions, delays and announcements in force right now
+    std::vector<int> suspendedServices;                  // services of suspended lines
 
     World(Network n, Database& db, const std::function<long long()>& clock) : net(std::move(n)), router(net), fares(net), planner(net, router, fares), journeys(db, net, planner, fares, clock) {
         for (const auto& s : net.stations) byGtfs[s.gtfsId] = s.id;
@@ -204,6 +209,58 @@ struct Api::World {
             ids.push_back(closuresNow[i].station);
         }
         planner.setClosedStations(ids);   // every search, including saved-journey recomputation, now avoids stopping there
+        lineNow = lineChangesAt(net, now);
+        suspendedServices.clear();
+        for (const auto& lc : lineNow)
+            if (lc.kind == "suspension")
+                for (int sv : servicesOfFamily(net, lc.family))
+                    if (std::find(suspendedServices.begin(), suspendedServices.end(), sv) == suspendedServices.end()) suspendedServices.push_back(sv);
+        planner.setSuspendedServices(suspendedServices);     // and no search uses a suspended line
+    }
+    bool serviceSuspended(int sv) const { return std::find(suspendedServices.begin(), suspendedServices.end(), sv) != suspendedServices.end(); }
+    // The suspensions that leave a station with no trains at all (empty if any line there still runs).
+    std::vector<const LineChange*> noTrainsAt(int station) const {
+        std::vector<const LineChange*> out;
+        const auto& here = linesAt[static_cast<size_t>(station)];
+        if (here.empty()) return out;
+        for (int sv : here)
+            if (!serviceSuspended(sv)) return out;
+        for (const auto& lc : lineNow) {
+            if (lc.kind != "suspension") continue;
+            for (int sv : here)
+                if (net.service(sv).family == lc.family) {
+                    out.push_back(&lc);
+                    break;
+                }
+        }
+        return out;
+    }
+    void lineRef(JsonWriter& w, const std::string& family) const {
+        if (family.empty()) {
+            w.null();
+            return;
+        }
+        std::string colour;
+        for (const auto& sv : net.services)
+            if (sv.family == family) {
+                colour = sv.colour;
+                break;
+            }
+        w.beginObject().field("family", family).field("name", familyName(net, family)).field("colour", colour).endObject();
+    }
+    void lineChange(JsonWriter& w, const LineChange& lc) const {
+        w.beginObject().field("changeId", lc.id).field("kind", lc.kind);
+        w.key("line");
+        lineRef(w, lc.family);
+        w.key("minutes");
+        if (lc.kind == "delay") w.value(lc.delayMinutes);
+        else w.null();
+        w.field("reason", lc.reason).field("startAt", lc.startAt);
+        w.key("until");
+        if (lc.endAt == 0) w.null();
+        else w.value(lc.endAt);
+        w.field("permanent", lc.endAt == 0).field("status", std::string(lc.startAt <= clockNow ? "active" : "upcoming"));
+        w.endObject();
     }
     const Closure* closureOf(int station) const {
         const auto it = closedIndex.find(station);
@@ -228,6 +285,23 @@ struct Api::World {
             a.key("lines").beginArray();
             for (int l : linesAt[static_cast<size_t>(s.id)]) a.value(l);
             a.endArray();
+            const auto none = noTrainsAt(s.id);
+            if (!none.empty()) {
+                a.key("noTrains").beginObject();
+                a.key("lines").beginArray();
+                long long until = 0;
+                bool forever = false;
+                for (const LineChange* lc : none) {
+                    a.value(familyName(net, lc->family));
+                    if (lc->endAt == 0) forever = true;
+                    else until = std::max(until, lc->endAt);
+                }
+                a.endArray();
+                a.key("until");
+                if (forever) a.null();
+                else a.value(until);
+                a.endObject();
+            }
             if (const Closure* c = closureOf(s.id)) {
                 a.key("closed").beginObject().field("reason", c->reason).field("startAt", c->startAt);
                 a.key("until");
@@ -317,6 +391,14 @@ struct Api::World {
                     if (closureOf(v) && std::find(passed.begin(), passed.end(), v) == passed.end()) passed.push_back(v);
         w.key("closedPassed").beginArray();
         for (int v : passed) closure(w, *closureOf(v));
+        w.endArray();
+        // delay notices for the lines this route rides (information only: the times above are NOT adjusted)
+        std::vector<std::string> rode;
+        for (const auto& s : r.steps)
+            if (s.kind == Step::Kind::Ride && std::find(rode.begin(), rode.end(), net.service(s.service).family) == rode.end()) rode.push_back(net.service(s.service).family);
+        w.key("delays").beginArray();
+        for (const auto& lc : lineNow)
+            if (lc.kind == "delay" && std::find(rode.begin(), rode.end(), lc.family) != rode.end()) lineChange(w, lc);
         w.endArray();
         w.endObject();
     }
@@ -460,6 +542,23 @@ Response Api::serveStatic(const std::string& rawPath) {
 // the API
 // ---------------------------------------------------------------------------------------------------
 
+namespace {
+
+// One cell of a CSV file. Quoted, with quotes doubled. A cell that a spreadsheet would treat as a formula (it starts with
+// = + - @, a tab or a carriage return) gets an apostrophe in front, so opening the file can never run anything.
+std::string csvCell(std::string v) {
+    if (!v.empty() && std::string("=+-@\t\r").find(v[0]) != std::string::npos) v = "'" + v;
+    std::string out = "\"";
+    for (char c : v) {
+        if (c == '"') out += "\"\"";
+        else if (c == '\n' || c == '\r') out += ' ';
+        else out += c;
+    }
+    return out + "\"";
+}
+
+}  // namespace
+
 // Everything under /api/admin/. Four checks, in this order, before anything happens:
 //   1. the request comes from this computer (unless the site was set up for HTTPS and adminFromAnywhere is on)
 //   2. someone is logged in
@@ -473,41 +572,81 @@ Response Api::handleAdmin(const Request& req, const std::vector<std::string>& se
     const std::string b = seg.size() == 3 ? seg[2] : std::string();
     World& w = *world_;
     const long long t = now();
+    const admin::Scope scopeParam = req.formParam("scope") == "line" ? admin::Scope::Line : admin::Scope::Station;
+    if (!req.formParam("scope").empty() && req.formParam("scope") != "line" && req.formParam("scope") != "station") return errorJson(400, "Choose station or line.");
 
-    if (b == "overview") {
-        if (!isGet) return methodNotAllowed("GET, HEAD");
-        const auto rows = admin_.history(500);
-        std::unordered_map<std::string, int> latestRename;    // station -> id of its newest rename that was not cancelled
-        for (const auto& c : rows)
-            if (c.kind == "rename" && c.cancelledAt == 0) {
+    // ---- the history, with each change's status worked out now
+    auto statusOf = [&](const admin::ChangeRow& c, const std::set<std::pair<int, int>>& replaced, const std::unordered_map<std::string, int>& latestRename) {
+        const int scope = c.scope == admin::Scope::Station ? 0 : 1;
+        if (c.cancelledAt != 0) return std::string(replaced.count({scope, c.id}) ? "replaced" : "cancelled");
+        if (c.kind == "rename") {
+            const auto it = latestRename.find(c.gtfsId);
+            return std::string(it != latestRename.end() && it->second == c.id ? "current" : "superseded");
+        }
+        if (c.startAt > t) return std::string("upcoming");
+        if (c.endAt != 0 && c.endAt <= t) return std::string("ended");
+        return std::string("active");
+    };
+    auto loadHistory = [&](std::vector<admin::ChangeRow>& rows, std::set<std::pair<int, int>>& replaced, std::unordered_map<std::string, int>& latestRename) {
+        rows = admin_.historyAll(2000);
+        for (const auto& c : rows) {
+            if (c.replacesId) replaced.insert({c.scope == admin::Scope::Station ? 0 : 1, c.replacesId});
+            if (c.scope == admin::Scope::Station && c.kind == "rename" && c.cancelledAt == 0) {
                 int& v = latestRename[c.gtfsId];
                 if (c.id > v) v = c.id;
             }
+        }
+    };
+
+    if (b == "overview") {
+        if (!isGet) return methodNotAllowed("GET, HEAD");
+        std::vector<admin::ChangeRow> rows;
+        std::set<std::pair<int, int>> replaced;
+        std::unordered_map<std::string, int> latestRename;
+        loadHistory(rows, replaced, latestRename);
         JsonWriter j;
         j.beginObject().field("now", t).field("dataVersion", w.net.dataVersion).field("username", acct->username);
+        std::string validUntil = "unknown";
+        try {
+            validUntil = db_.scalarText("SELECT value FROM meta WHERE key='feed_valid_until';");
+        } catch (const std::exception&) {
+        }
+        j.field("feedValidUntil", validUntil);
+        j.key("lines").beginArray();
+        for (const auto& f : families(w.net)) w.lineRef(j, f);
+        j.endArray();
         j.key("changes").beginArray();
         for (const auto& c : rows) {
-            std::string status;
-            if (c.cancelledAt != 0) status = "cancelled";
-            else if (c.kind == "rename") status = latestRename[c.gtfsId] == c.id ? "current" : "superseded";
-            else if (c.startAt > t) status = "upcoming";
-            else if (c.endAt != 0 && c.endAt <= t) status = "ended";
-            else status = "active";
-            const auto it = w.byGtfs.find(c.gtfsId);
-            j.beginObject().field("id", c.id).field("kind", c.kind);
-            j.key("station").beginObject().field("gtfsId", c.gtfsId);
-            j.key("id");
-            if (it == w.byGtfs.end()) j.null();
-            else j.value(it->second);
-            j.key("name");
-            if (it == w.byGtfs.end()) j.null();
-            else j.value(w.net.station(it->second).name);
-            j.key("feedName");
-            if (it == w.byGtfs.end()) j.null();
-            else j.value(w.net.feedNames[static_cast<size_t>(it->second - 1)]);
-            j.endObject();
+            j.beginObject().field("scope", std::string(c.scope == admin::Scope::Station ? "station" : "line")).field("id", c.id).field("kind", c.kind);
+            if (c.scope == admin::Scope::Station) {
+                const auto it = w.byGtfs.find(c.gtfsId);
+                j.key("station").beginObject().field("gtfsId", c.gtfsId);
+                j.key("id");
+                if (it == w.byGtfs.end()) j.null();
+                else j.value(it->second);
+                j.key("name");
+                if (it == w.byGtfs.end()) j.null();
+                else j.value(w.net.station(it->second).name);
+                j.key("feedName");
+                if (it == w.byGtfs.end()) j.null();
+                else j.value(w.net.feedNames[static_cast<size_t>(it->second - 1)]);
+                j.endObject();
+                j.key("line").null();
+            } else {
+                j.key("station").null();
+                j.key("line");
+                if (c.lineFamily.empty() || familyName(w.net, c.lineFamily).empty()) {
+                    if (c.lineFamily.empty()) j.null();
+                    else j.beginObject().field("family", c.lineFamily).field("name", c.lineFamily).field("colour", "").endObject();   // a line no longer in the network
+                } else {
+                    w.lineRef(j, c.lineFamily);
+                }
+            }
             j.key("newName");
             if (c.kind == "rename") j.value(c.newName);
+            else j.null();
+            j.key("minutes");
+            if (c.kind == "delay") j.value(c.delayMinutes);
             else j.null();
             j.field("reason", c.reason).field("startAt", c.startAt);
             j.key("endAt");
@@ -520,20 +659,142 @@ Response Api::handleAdmin(const Request& req, const std::vector<std::string>& se
             j.key("cancelledBy");
             if (c.cancelledAt == 0) j.null();
             else j.value(c.cancelledBy);
-            j.field("status", status);
+            j.key("replaces");
+            if (c.replacesId) j.value(c.replacesId);
+            else j.null();
+            j.field("status", statusOf(c, replaced, latestRename));
             j.endObject();
         }
         j.endArray().endObject();
         return json(200, j);
     }
 
-    if (b == "rename" || b == "close" || b == "cancel") {
+    if (b == "history.csv") {
+        if (!isGet) return methodNotAllowed("GET, HEAD");
+        std::vector<admin::ChangeRow> rows;
+        std::set<std::pair<int, int>> replaced;
+        std::unordered_map<std::string, int> latestRename;
+        loadHistory(rows, replaced, latestRename);
+        auto when = [](long long v) { return v ? formatUtc(v) : std::string(); };
+        std::string out = "\xEF\xBB\xBF";   // so spreadsheet programs read the file as UTF-8
+        out += "scope,id,kind,station_or_line,new_name,delay_minutes,reason,start,end,made,made_by,cancelled,cancelled_by,replaces,status\r\n";
+        for (const auto& c : rows) {
+            std::string target;
+            if (c.scope == admin::Scope::Station) {
+                const auto it = w.byGtfs.find(c.gtfsId);
+                target = it == w.byGtfs.end() ? c.gtfsId : w.net.feedNames[static_cast<size_t>(it->second - 1)];
+            } else {
+                target = c.lineFamily.empty() ? std::string("All lines") : (familyName(w.net, c.lineFamily).empty() ? c.lineFamily : familyName(w.net, c.lineFamily));
+            }
+            const std::vector<std::string> cells = {c.scope == admin::Scope::Station ? "station" : "line", std::to_string(c.id), c.kind, target, c.newName,
+                                                    c.kind == "delay" ? std::to_string(c.delayMinutes) : std::string(), c.reason, when(c.startAt),
+                                                    c.endAt ? when(c.endAt) : (c.kind == "rename" ? std::string() : std::string("until further notice")), when(c.createdAt),
+                                                    c.createdBy, when(c.cancelledAt), c.cancelledBy, c.replacesId ? std::to_string(c.replacesId) : std::string(),
+                                                    statusOf(c, replaced, latestRename)};
+            for (size_t i = 0; i < cells.size(); ++i) out += (i ? "," : "") + csvCell(cells[i]);
+            out += "\r\n";
+        }
+        Response r;
+        r.contentType = "text/csv; charset=utf-8";
+        r.body = out;
+        r.headers.push_back({"Content-Disposition", "attachment; filename=\"metrogo-changes.csv\""});
+        return r;
+    }
+
+    if (b == "preview") {      // what a closure or a line suspension WOULD do, if it started now; nothing is changed
+        if (!isGet) return methodNotAllowed("GET, HEAD");
+        Restrictions current;
+        current.closedStations = w.planner.closedStations();
+        current.bannedServices = w.planner.suspendedServices();
+        Restrictions proposed = current;
+        std::string target, kind;
+        bool already = false;
+        int sid = 0;
+        if (!req.queryParam("station").empty()) {
+            if (!parseInt(req.queryParam("station"), 1, static_cast<int>(w.net.stations.size()), sid)) return errorJson(400, "Choose a station.");
+            kind = "station";
+            target = w.net.station(sid).name;
+            already = w.closureOf(sid) != nullptr;
+            if (!already) proposed.closedStations.push_back(sid);
+        } else if (!req.queryParam("line").empty()) {
+            const auto svs = servicesOfFamily(w.net, req.queryParam("line"));
+            if (svs.empty()) return errorJson(404, "There is no such line.");
+            kind = "line";
+            target = familyName(w.net, req.queryParam("line"));
+            already = true;
+            for (int sv : svs)
+                if (!w.serviceSuspended(sv)) {
+                    already = false;
+                    proposed.bannedServices.push_back(sv);
+                }
+        } else {
+            return errorJson(400, "Choose a station or a line.");
+        }
+        const auto t0 = std::chrono::steady_clock::now();
+        const ImpactReport rep = assessImpact(w.net, w.router, current, proposed);
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        int savedAffected = 0;
+        for (const auto& row : db_.rows("SELECT from_gtfs_stop_id, to_gtfs_stop_id FROM saved_journeys;")) {
+            const auto f = w.byGtfs.find(row[0]), g = w.byGtfs.find(row[1]);
+            if (f == w.byGtfs.end() || g == w.byGtfs.end()) continue;
+            const int before = rep.before[static_cast<size_t>(f->second)][static_cast<size_t>(g->second)];
+            const int after = rep.after[static_cast<size_t>(f->second)][static_cast<size_t>(g->second)];
+            if (before >= 0 && (after < 0 || after > before)) ++savedAffected;
+        }
+        JsonWriter j;
+        j.beginObject().field("kind", kind).field("target", target).field("alreadyInForce", already);
+        j.field("pairsChecked", rep.pairsChecked).field("lost", rep.lost).field("slower", rep.slower).field("unaffected", rep.unaffected).field("endpointPairs", rep.endpointPairs);
+        j.field("averageExtraMinutes", rep.slower ? static_cast<int>((rep.extraSecondsTotal / rep.slower + 30) / 60) : 0).field("maxExtraMinutes", (rep.maxExtraSeconds + 30) / 60);
+        j.key("maxExample");
+        if (rep.maxFrom) {
+            j.beginObject().key("from");
+            w.stationRef(j, rep.maxFrom);
+            j.key("to");
+            w.stationRef(j, rep.maxTo);
+            j.endObject();
+        } else {
+            j.null();
+        }
+        j.key("lostExample");
+        if (rep.lostFrom) {
+            j.beginObject().key("from");
+            w.stationRef(j, rep.lostFrom);
+            j.key("to");
+            w.stationRef(j, rep.lostTo);
+            j.endObject();
+        } else {
+            j.null();
+        }
+        j.field("stationsWithoutTrainsCount", static_cast<int>(rep.stationsWithoutTrains.size()));
+        j.key("stationsWithoutTrains").beginArray();
+        for (size_t i = 0; i < rep.stationsWithoutTrains.size() && i < 40; ++i) j.value(w.net.station(rep.stationsWithoutTrains[i]).name);
+        j.endArray();
+        j.field("savedJourneysAffected", savedAffected).field("milliseconds", static_cast<int>(ms + 0.5));
+        j.endObject();
+        return json(200, j);
+    }
+
+    if (b == "rename" || b == "close" || b == "cancel" || b == "line" || b == "extend") {
         if (!isPost) return methodNotAllowed("POST");
         admin::Result res;
-        if (b == "cancel") {
+        if (b == "cancel" || b == "extend") {
             int id = 0;
             if (!parseInt(req.formParam("change"), 1, 2000000000, id)) return errorJson(400, "Choose a change.");
-            res = admin_.cancel(id, acct->username);
+            if (b == "cancel") {
+                res = admin_.cancel(scopeParam, id, acct->username);
+            } else {
+                long long newEnd = 0;
+                const std::string e = req.formParam("end");
+                if (e.empty()) return errorJson(400, "Choose the new end, or 'never' for until further notice.");
+                if (e != "never" && (!parseEpoch(e, newEnd) || newEnd == 0)) return errorJson(400, "The end time is not valid.");
+                res = admin_.extend(scopeParam, id, newEnd, acct->username);
+            }
+        } else if (b == "line") {
+            long long startAt = 0, endAt = 0;
+            if (!parseEpoch(req.formParam("start"), startAt) || !parseEpoch(req.formParam("end"), endAt)) return errorJson(400, "The start or end time is not valid.");
+            int minutes = 0;
+            if (!req.formParam("minutes").empty() && !parseInt(req.formParam("minutes"), 0, 100000, minutes)) return errorJson(400, "The delay must be a number of minutes.");
+            res = admin_.lineChange(req.formParam("line"), req.formParam("kind"), minutes, req.formParam("reason"), startAt, endAt, acct->username);
         } else {
             int sid = 0;
             if (!parseInt(req.formParam("station"), 1, static_cast<int>(w.net.stations.size()), sid)) return errorJson(400, "Choose a station.");
@@ -607,6 +868,10 @@ Response Api::handleApi(const Request& req) {
         j.key("closures").beginArray();
         for (const auto& c : w.closuresNow) w.closure(j, c);
         for (const auto& c : upcomingClosures(w.net, w.clockNow, 7LL * 24 * 3600)) w.closure(j, c);
+        j.endArray();
+        j.key("lines").beginArray();
+        for (const auto& lc : w.lineNow) w.lineChange(j, lc);
+        for (const auto& lc : upcomingLineChanges(w.net, w.clockNow, 7LL * 24 * 3600)) w.lineChange(j, lc);
         j.endArray().endObject();
         return json(200, j);
     }
@@ -671,6 +936,27 @@ Response Api::handleApi(const Request& req) {
                 return json(200, j);
             }
         }
+        for (int id : {from, to}) {    // every line at this station is suspended
+            const auto none = w.noTrainsAt(id);
+            if (none.empty()) continue;
+            std::string names;
+            for (const LineChange* lc : none) names += (names.empty() ? "" : " and ") + familyName(w.net, lc->family);
+            JsonWriter j;
+            j.beginObject().field("found", false);
+            j.key("from");
+            w.stationRef(j, from);
+            j.key("to");
+            w.stationRef(j, to);
+            j.field("day", dayName).field("dataVersion", w.net.dataVersion).field("prefer", preferenceName(prefer));
+            j.field("message", "No trains are running at " + w.net.station(id).name + ": the " + names + (none.size() > 1 ? " are" : " is") + " suspended.");
+            j.key("noTrains").beginObject();
+            j.key("station");
+            w.stationRef(j, id);
+            j.key("lines").beginArray();
+            for (const LineChange* lc : none) w.lineChange(j, *lc);
+            j.endArray().endObject().endObject();
+            return json(200, j);
+        }
         const PlanResult plan = w.planner.plan(from, to, day, prefer);
         JsonWriter j;
         j.beginObject().field("found", plan.found);
@@ -680,6 +966,10 @@ Response Api::handleApi(const Request& req) {
         w.stationRef(j, to);
         j.field("day", dayName).field("dataVersion", w.net.dataVersion).field("prefer", preferenceName(prefer));
         if (!plan.found) {
+            j.key("suspended").beginArray();
+            for (const auto& lc : w.lineNow)
+                if (lc.kind == "suspension") w.lineChange(j, lc);
+            j.endArray();
             j.field("message", "There is no route between these two stations.").endObject();
             return json(200, j);
         }
@@ -696,6 +986,10 @@ Response Api::handleApi(const Request& req) {
         j.endArray();
         j.key("notes").beginArray();
         for (const auto& note : plan.notes) j.value(note);
+        j.endArray();
+        j.key("suspended").beginArray();
+        for (const auto& lc : w.lineNow)
+            if (lc.kind == "suspension") w.lineChange(j, lc);
         j.endArray();
         j.key("notices").beginArray();
         j.value("Times are estimates from the timetable data and do not include waiting for trains.");

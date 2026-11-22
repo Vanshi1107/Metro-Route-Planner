@@ -1,5 +1,9 @@
--- MetroGo - database schema, version 6
+-- MetroGo - database schema, version 7
 --
+-- Version 7 (line disruptions):
+--   * new table line_changes: a whole line suspended, delayed, or an announcement (for one line or all)
+--   * station_changes.replaces_change_id: when a change's end is moved, a new row replaces the old one (history kept)
+--   * upgrade an existing database in place with: metro_db migrate
 -- Version 6 (station admin):
 --   * users.role ('user' or 'admin'); admins are made only from the command line (metro_user make-admin)
 --   * new table station_changes: admin renames and closures of stations, kept as an audit history
@@ -26,7 +30,7 @@ CREATE TABLE meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT INTO meta(key, value) VALUES ('schema_version', '6');
+INSERT INTO meta(key, value) VALUES ('schema_version', '7');
 
 -- ---------------------------------------------------------------------------
 -- NETWORK DATA (rebuilt from the official feed by the importer; never edited by hand)
@@ -204,7 +208,35 @@ CREATE TABLE station_changes (
     created_by   TEXT    NOT NULL,
     cancelled_at INTEGER CHECK (cancelled_at IS NULL OR typeof(cancelled_at) = 'integer'),
     cancelled_by TEXT,
+    replaces_change_id INTEGER,              -- set when this row replaced an earlier one (its end time was moved)
     CHECK ((kind = 'rename' AND new_name IS NOT NULL AND end_at IS NULL) OR (kind = 'closure' AND new_name IS NULL)),
     CHECK (end_at IS NULL OR end_at > start_at)
 );
 CREATE INDEX idx_station_changes_stop ON station_changes(gtfs_stop_id, change_id);
+
+-- ---------------------------------------------------------------------------
+-- LINE CHANGES made by an admin (survive network re-imports)
+-- A line is named by its prefix from config/line_map.csv (e.g. 'BLUE'), so this also survives re-imports; a change for a
+-- line that no longer exists is kept but has no effect. Never deleted, like station_changes.
+--   kind 'suspension'   : no trains run on the line from start_at until end_at (NULL = until further notice)
+--   kind 'delay'        : information only, routes are not changed; delay_minutes is how late trains are running
+--   kind 'announcement' : information only; line_family NULL means it is for the whole network
+-- ---------------------------------------------------------------------------
+CREATE TABLE line_changes (
+    change_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    line_family        TEXT,
+    kind               TEXT    NOT NULL CHECK (kind IN ('suspension', 'delay', 'announcement')),
+    delay_minutes      INTEGER CHECK (delay_minutes IS NULL OR (typeof(delay_minutes) = 'integer' AND delay_minutes BETWEEN 1 AND 240)),
+    reason             TEXT    NOT NULL CHECK (length(reason) BETWEEN 5 AND 200),
+    start_at           INTEGER NOT NULL CHECK (typeof(start_at) = 'integer'),
+    end_at             INTEGER CHECK (end_at IS NULL OR typeof(end_at) = 'integer'),
+    created_at         INTEGER NOT NULL CHECK (typeof(created_at) = 'integer'),
+    created_by         TEXT    NOT NULL,
+    cancelled_at       INTEGER CHECK (cancelled_at IS NULL OR typeof(cancelled_at) = 'integer'),
+    cancelled_by       TEXT,
+    replaces_change_id INTEGER,
+    CHECK ((kind = 'delay') = (delay_minutes IS NOT NULL)),
+    CHECK (kind = 'announcement' OR line_family IS NOT NULL),
+    CHECK (end_at IS NULL OR end_at > start_at)
+);
+CREATE INDEX idx_line_changes_line ON line_changes(line_family, change_id);

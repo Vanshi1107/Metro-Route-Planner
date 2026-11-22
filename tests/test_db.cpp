@@ -25,11 +25,11 @@ int main(int argc, char** argv) {
     Database db(":memory:", true);
     db.exec(schema);
 
-    for (const char* t : {"meta", "stations", "lines", "line_stops", "segments", "transfers", "fare_slabs", "fare_pairs", "users", "station_changes",
+    for (const char* t : {"meta", "stations", "lines", "line_stops", "segments", "transfers", "fare_slabs", "fare_pairs", "users", "station_changes", "line_changes",
                           "sessions", "login_attempts", "saved_journeys"})
         CHECK(db.tableExists(t));
 
-    CHECK_EQ(db.scalarText("SELECT value FROM meta WHERE key='schema_version';"), std::string("6"));
+    CHECK_EQ(db.scalarText("SELECT value FROM meta WHERE key='schema_version';"), std::string("7"));
 
     // Valid data is accepted.
     db.exec("INSERT INTO stations(station_id,gtfs_stop_id,name,lat,lon) VALUES (1,'A','Alpha',28.6,77.2);");

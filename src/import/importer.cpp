@@ -974,9 +974,9 @@ int importInto(Database& db, const Model& m) {
     } catch (const std::exception&) {
         throw ImportError("this database has no schema version. Create it with: metro_db init --force");
     }
-    if (version != "6")
-        throw ImportError("database schema version is " + version + " but this importer needs 6. " +
-                          (version == "5" ? "Upgrade it (keeping accounts and saved journeys) with: metro_db migrate" : "Recreate it with: metro_db init --force"));
+    if (version != "7")
+        throw ImportError("database schema version is " + version + " but this importer needs 7. " +
+                          (version == "5" || version == "6" ? "Upgrade it (keeping accounts and saved journeys) with: metro_db migrate" : "Recreate it with: metro_db init --force"));
 
     int newVersion = 1;
     {

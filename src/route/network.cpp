@@ -117,9 +117,9 @@ Network loadNetwork(Database& db) {
     } catch (const std::exception&) {
         throw std::runtime_error("this is not a metro database. Create one with: metro_db init");
     }
-    if (version != "6")
-        throw std::runtime_error("database schema version is " + version + " but 6 is needed. " +
-                                 (version == "5" ? "Upgrade it (keeping accounts and saved journeys) with: metro_db migrate"
+    if (version != "7")
+        throw std::runtime_error("database schema version is " + version + " but 7 is needed. " +
+                                 (version == "5" || version == "6" ? "Upgrade it (keeping accounts and saved journeys) with: metro_db migrate"
                                                  : "Recreate it with: metro_db init --force, then metro_import"));
 
     Network n;
@@ -160,6 +160,8 @@ Network loadNetwork(Database& db) {
             if (ch.kind == "rename" && !ch.newName.empty()) n.stations[static_cast<size_t>(ch.station - 1)].name = ch.newName;   // the latest rename wins
         }
     }
+
+    // ...and is read further down, once the services are known (a line change for a line that no longer exists has no effect).
 
     for (const auto& r : db.rows("SELECT line_id,family,name,ifnull(colour,''),operator FROM lines ORDER BY line_id")) {
         Service s;
@@ -235,6 +237,25 @@ Network loadNetwork(Database& db) {
         } catch (const std::exception&) {
         }
     };
+    {
+        std::set<std::string> known;
+        for (const auto& sv : n.services) known.insert(sv.family);
+        for (const auto& r : db.rows("SELECT change_id,ifnull(line_family,''),kind,ifnull(delay_minutes,0),reason,start_at,ifnull(end_at,0),created_at,created_by "
+                                     "FROM line_changes WHERE cancelled_at IS NULL ORDER BY change_id")) {
+            LineChange lc;
+            lc.id = toInt(r[0], "line_changes");
+            lc.family = r[1];
+            if (!lc.family.empty() && !known.count(lc.family)) continue;
+            lc.kind = r[2];
+            lc.delayMinutes = toInt(r[3], "line_changes");
+            lc.reason = r[4];
+            lc.startAt = std::strtoll(r[5].c_str(), nullptr, 10);
+            lc.endAt = std::strtoll(r[6].c_str(), nullptr, 10);
+            lc.createdAt = std::strtoll(r[7].c_str(), nullptr, 10);
+            lc.createdBy = r[8];
+            n.lineChanges.push_back(lc);
+        }
+    }
     optionalInt("similar_time_seconds", n.plannerSimilarSeconds);
     optionalInt("max_routes_per_group", n.plannerMaxRoutes);
     optionalInt("max_slower_percent", n.plannerMaxSlowerPercent);
@@ -333,6 +354,41 @@ std::vector<Closure> upcomingClosures(const Network& n, long long now, long long
         out.push_back(c);
     }
     std::sort(out.begin(), out.end(), [](const Closure& a, const Closure& b) { return a.startAt != b.startAt ? a.startAt < b.startAt : a.changeId < b.changeId; });
+    return out;
+}
+
+std::vector<int> servicesOfFamily(const Network& n, const std::string& family) {
+    std::vector<int> out;
+    for (const auto& s : n.services)
+        if (s.family == family) out.push_back(s.id);
+    return out;
+}
+
+std::string familyName(const Network& n, const std::string& family) {
+    for (const auto& s : n.services)
+        if (s.family == family) return s.name.substr(0, s.name.find(':'));   // "Blue Line: A to B" -> "Blue Line"
+    return std::string();
+}
+
+std::vector<std::string> families(const Network& n) {
+    std::vector<std::string> out;
+    for (const auto& s : n.services)
+        if (std::find(out.begin(), out.end(), s.family) == out.end()) out.push_back(s.family);
+    return out;
+}
+
+std::vector<LineChange> lineChangesAt(const Network& n, long long now) {
+    std::vector<LineChange> out;
+    for (const auto& lc : n.lineChanges)
+        if (lc.activeAt(now)) out.push_back(lc);
+    return out;
+}
+
+std::vector<LineChange> upcomingLineChanges(const Network& n, long long now, long long withinSeconds) {
+    std::vector<LineChange> out;
+    for (const auto& lc : n.lineChanges)
+        if (lc.startAt > now && lc.startAt <= now + withinSeconds) out.push_back(lc);
+    std::sort(out.begin(), out.end(), [](const LineChange& a, const LineChange& b) { return a.startAt != b.startAt ? a.startAt < b.startAt : a.id < b.id; });
     return out;
 }
 

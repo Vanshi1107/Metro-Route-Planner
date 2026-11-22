@@ -65,7 +65,8 @@
             <input id="close-end" type="datetime-local">
             <label for="close-reason">Reason (passengers will see this)</label>
             <input id="close-reason" type="text" maxlength="200" autocomplete="off" placeholder="For example: water on the platform">
-            <button type="submit" id="close-submit" class="primary" disabled>Pause station</button>
+            <p class="actions"><button type="button" id="close-preview-btn" class="small">Preview impact</button> <button type="submit" id="close-submit" class="primary" disabled>Pause station</button></p>
+            <div id="close-preview" class="preview" hidden aria-live="polite"></div>
           </form>
 
           <form id="rename-form" method="post" action="/admin.html" novalidate>
@@ -80,6 +81,38 @@
         </div>
       </section>
 
+      <section class="panel" aria-labelledby="line-title">
+        <h2 id="line-title">2. A whole line</h2>
+        <p class="hint">Suspend a line (no trains run on it), or tell passengers about a delay or anything else. Delays and announcements are information only: routes and times do not change.</p>
+        <form id="line-form" method="post" action="/admin.html" novalidate>
+          <fieldset class="segmented">
+            <legend>What is happening?</legend>
+            <label><input type="radio" name="linekind" value="suspension" checked><span>No trains (suspend)</span></label>
+            <label><input type="radio" name="linekind" value="delay"><span>Delay</span></label>
+            <label><input type="radio" name="linekind" value="announcement"><span>Announcement</span></label>
+          </fieldset>
+          <label for="line-select">Line</label>
+          <select id="line-select"></select>
+          <div id="minutes-row" hidden>
+            <label for="line-minutes">Delay in minutes (1 to 240)</label>
+            <input id="line-minutes" type="number" min="1" max="240" step="1" inputmode="numeric">
+          </div>
+          <fieldset class="segmented">
+            <legend>For how long?</legend>
+            <label><input type="radio" name="lineend" value="until" checked><span>Until a set time</span></label>
+            <label><input type="radio" name="lineend" value="forever"><span>Until further notice</span></label>
+          </fieldset>
+          <label for="line-start">From (date and time)</label>
+          <input id="line-start" type="datetime-local">
+          <label for="line-end" id="line-end-label">Until (date and time)</label>
+          <input id="line-end" type="datetime-local">
+          <label for="line-reason" id="line-reason-label">Reason (passengers will see this)</label>
+          <input id="line-reason" type="text" maxlength="200" autocomplete="off" placeholder="For example: power failure between two stations">
+          <p class="actions"><button type="button" id="line-preview-btn" class="small">Preview impact</button> <button type="submit" id="line-submit" class="primary" disabled>Publish</button></p>
+          <div id="line-preview" class="preview" hidden aria-live="polite"></div>
+        </form>
+      </section>
+
       <section class="panel" aria-labelledby="active-title">
         <h2 id="active-title">In force or planned</h2>
         <div id="active-box"></div>
@@ -88,7 +121,22 @@
       <section class="panel" aria-labelledby="history-title">
         <h2 id="history-title">History</h2>
         <p class="hint">Everything that was changed, newest first. Nothing is ever deleted.</p>
+        <div class="filters">
+          <div><label for="h-text">Search</label><input id="h-text" type="text" autocomplete="off" placeholder="Station, line, reason or person"></div>
+          <div><label for="h-kind">Kind</label>
+            <select id="h-kind">
+              <option value="">Everything</option><option value="closure">Station pauses</option><option value="rename">Renames</option>
+              <option value="suspension">Line suspensions</option><option value="delay">Delays</option><option value="announcement">Announcements</option>
+            </select></div>
+          <div><label for="h-status">Status</label>
+            <select id="h-status">
+              <option value="">Any</option><option value="now">In force or planned</option><option value="ended">Ended</option><option value="cancelled">Cancelled or replaced</option>
+            </select></div>
+          <div class="filters-csv"><a id="csv-link" class="button small-link" href="/api/admin/history.csv" download>Download all as CSV</a></div>
+        </div>
+        <p id="h-count" class="hint" role="status"></p>
         <div id="history-box"></div>
+        <p><button type="button" id="h-more" class="small" hidden>Show 100 more</button></p>
       </section>
     </div>
     <noscript><p class="message">The admin tools need JavaScript.</p></noscript>

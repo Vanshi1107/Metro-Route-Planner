@@ -66,7 +66,7 @@ target_link_libraries(metro_gtfs PUBLIC metro_common PRIVATE metro_warnings)
 add_library(metro_importer STATIC src/import/importer.cpp)
 target_link_libraries(metro_importer PUBLIC metro_gtfs PRIVATE metro_warnings)
 
-add_library(metro_route_lib STATIC src/route/network.cpp src/route/router.cpp src/route/fare.cpp src/route/planner.cpp src/route/verify.cpp src/route/present.cpp)
+add_library(metro_route_lib STATIC src/route/network.cpp src/route/router.cpp src/route/fare.cpp src/route/planner.cpp src/route/impact.cpp src/route/verify.cpp src/route/present.cpp)
 target_link_libraries(metro_route_lib PUBLIC metro_gtfs PRIVATE metro_warnings)
 
 # ---- accounts, sessions and saved journeys -----------------------------------------------------

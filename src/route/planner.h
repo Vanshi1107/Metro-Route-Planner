@@ -77,6 +77,9 @@ public:
     // including the saved-journey recomputation. The web layer sets this from the clock before each request.
     void setClosedStations(std::vector<int> stationIds) { closed_ = std::move(stationIds); }
     const std::vector<int>& closedStations() const { return closed_; }
+    // Services that are not running (an admin suspended their line). Applied to every search, like closed stations.
+    void setSuspendedServices(std::vector<int> serviceIds) { suspended_ = std::move(serviceIds); }
+    const std::vector<int>& suspendedServices() const { return suspended_; }
 
     // The distinct, worthwhile routes found, with badges (exposed for tests).
     std::vector<Candidate> candidates(int fromStation, int toStation, DayType day) const;
@@ -87,6 +90,7 @@ private:
     const FareCalculator& fares_;
     PlannerSettings settings_;
     std::vector<int> closed_;
+    std::vector<int> suspended_;
 };
 
 // Identifies a journey by the lines and stations a passenger would see. Two routes with the same signature are the same

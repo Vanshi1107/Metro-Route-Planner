@@ -105,6 +105,7 @@ std::vector<Candidate> Planner::candidates(int from, int to, DayType day) const 
 
     Restrictions base;                 // what is closed always applies; the variants below only add to it
     base.closedStations = closed_;
+    base.bannedServices = suspended_;
     for (Mode m : {Mode::Fastest, Mode::FewestChanges}) add(router_.find(from, to, m, base), base);
     if (out.empty()) return out;
 

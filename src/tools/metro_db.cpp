@@ -19,7 +19,7 @@ using metro::Transaction;
 namespace {
 
 const char* kTables[] = {"meta",     "stations",    "lines",    "line_stops", "segments", "transfers",
-                         "fare_slabs", "fare_pairs", "users",     "sessions", "login_attempts", "saved_journeys", "station_changes"};
+                         "fare_slabs", "fare_pairs", "users",     "sessions", "login_attempts", "saved_journeys", "station_changes", "line_changes"};
 
 void usage() {
     std::cout << "Usage:\n"
