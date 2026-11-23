@@ -380,23 +380,6 @@ About 7,200 lines of C++ in 45 files, 3,000 lines of C++ tests, and 1,400 lines 
 | [`docs/design.md`](docs/design.md) | The palette and the derived colours |
 | [`docs/problem.md`](docs/problem.md) | The problem statement and success measure (**still to be written**) |
 
-## Roadmap
-
-The next phase starts with learning, not building: watch first-time riders, compare with DMRC's planner, refresh the data and check
-its licence. Then the most promising feature is an action-by-action **Guided Journey** for newcomers (ticket, entry, platform
-direction, change, exit), built only from facts DMRC publishes. After that: timetable-aware planning, complete fares, a Hindi
-interface, and HTTPS deployment. The prioritised list, with the evidence each item needs, is in section 7 of the
-[Project Overview](docs/MetroGo_Project_Overview.docx).
-
-## Contributing
-
-Issues and suggestions are welcome. A very useful first contribution needs no code: **fill in the `dmrc_min`, `dmrc_changes` and
-`dmrc_fare_inr` columns of [`docs/evaluation_sheet.csv`](docs/evaluation_sheet.csv)** by asking DMRC's own planner, which gives the
-project its first real accuracy number. MetroGo's own answers for the same 30 trips can be re-created at any time:
-
-```powershell
-.\build\Release\metro_route.exe --batch docs\evaluation_pairs.csv --out data\evaluation_results.csv
-```
 
 For code changes: run `ctest` and `node tests\test_search.js` first; keep the pages free of inline scripts and styles (the
 content-security policy blocks them); put text on the page with `textContent`, never `innerHTML`; and keep
@@ -417,3 +400,8 @@ been checked.
 The Delhi Metro Rail Corporation for publishing the network and fare information this project relies on; the
 [GTFS](https://gtfs.org/documentation/schedule/reference/) specification; the Vulture repository for hosting a copy of the feed;
 OpenStreetMap and its contributors; and the authors of SQLite, cpp-httplib and Leaflet.
+
+## Team Members
+- Harshita Agrawal
+- Vanshika Maheshwari
+- Priyanshi Tamta
